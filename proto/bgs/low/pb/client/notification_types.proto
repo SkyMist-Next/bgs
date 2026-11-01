@@ -1,12 +1,13 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.notification.v1;
 
 import "bgs/low/pb/client/account_types.proto";
 import "bgs/low/pb/client/attribute_types.proto";
 import "bgs/low/pb/client/entity_types.proto";
 import "bgs/low/pb/client/rpc_types.proto";
-package bgs.protocol.notification.v1;
-
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message Target {
   optional .bgs.protocol.account.v1.Identity identity = 1;
@@ -31,5 +32,3 @@ message Notification {
   optional .bgs.protocol.ProcessId peer = 9;
   optional .bgs.protocol.account.v1.Identity forwarding_identity = 10;
 }
-
-

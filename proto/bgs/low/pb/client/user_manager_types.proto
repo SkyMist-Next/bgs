@@ -1,10 +1,11 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.user_manager.v1;
 
 import "bgs/low/pb/client/entity_types.proto";
 import "bgs/low/pb/client/attribute_types.proto";
-package bgs.protocol.user_manager.v1;
-
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message RecentPlayer {
   required .bgs.protocol.EntityId entity_id = 1;
@@ -21,5 +22,3 @@ message BlockedPlayer {
   repeated uint32 role = 3 [packed = true];
   optional uint64 privileges = 4 [default = 0];
 }
-
-

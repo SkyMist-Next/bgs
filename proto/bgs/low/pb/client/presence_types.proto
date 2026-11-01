@@ -1,11 +1,12 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.presence.v1;
 
 import "bgs/low/pb/client/attribute_types.proto";
 import "bgs/low/pb/client/entity_types.proto";
 import "bgs/low/pb/client/channel_types.proto";
-package bgs.protocol.presence.v1;
-
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message RichPresenceLocalizationKey {
   required fixed32 program = 1;
@@ -34,11 +35,6 @@ message FieldOperation {
   optional .bgs.protocol.presence.v1.FieldOperation.OperationType operation = 2 [default = SET];
 }
 
-message PresenceState {
-  optional .bgs.protocol.EntityId entity_id = 1;
-  repeated .bgs.protocol.presence.v1.FieldOperation field_operation = 2;
-}
-
 message ChannelState {
   optional .bgs.protocol.EntityId entity_id = 1;
   repeated .bgs.protocol.presence.v1.FieldOperation field_operation = 2;
@@ -47,5 +43,3 @@ message ChannelState {
     optional .bgs.protocol.presence.v1.ChannelState presence = 101;
   }
 }
-
-

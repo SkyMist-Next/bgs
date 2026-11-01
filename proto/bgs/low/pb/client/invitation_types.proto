@@ -1,20 +1,12 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
 
-import "bgs/low/pb/client/entity_types.proto";
 package bgs.protocol;
 
+import "bgs/low/pb/client/entity_types.proto";
 option java_package = "bnet.protocol";
 option java_outer_classname = "InvitationTypesProto";
-option optimize_for = SPEED;
-
-enum InvitationRemovedReason {
-  INVITATION_REMOVED_REASON_ACCEPTED = 0;
-  INVITATION_REMOVED_REASON_DECLINED = 1;
-  INVITATION_REMOVED_REASON_REVOKED = 2;
-  INVITATION_REMOVED_REASON_IGNORED = 3;
-  INVITATION_REMOVED_REASON_EXPIRED = 4;
-  INVITATION_REMOVED_REASON_CANCELED = 5;
-}
+option optimize_for = CODE_SIZE;
 
 message Invitation {
   required fixed64 id = 1;
@@ -29,9 +21,7 @@ message Invitation {
 }
 
 message InvitationParams {
-  optional string invitation_message = 1 [deprecated = true];
+  optional string invitation_message = 1;
   optional uint64 expiration_time = 2;
   extensions 100 to 9999;
 }
-
-

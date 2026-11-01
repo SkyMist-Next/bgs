@@ -1,8 +1,9 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
 
 package bgs.protocol.config;
 
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message RPCMethodConfig {
   optional string service_name = 1 [deprecated = true];
@@ -38,5 +39,3 @@ message ProtocolAlias {
 message ServiceAliases {
   repeated .bgs.protocol.config.ProtocolAlias protocol_alias = 1;
 }
-
-

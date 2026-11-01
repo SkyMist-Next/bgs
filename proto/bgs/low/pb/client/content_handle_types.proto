@@ -1,10 +1,11 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
 
 package bgs.protocol;
 
 option java_package = "bnet.protocol";
 option java_outer_classname = "ContentHandleProto";
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message ContentHandle {
   required fixed32 region = 1;
@@ -12,5 +13,3 @@ message ContentHandle {
   required bytes hash = 3;
   optional string proto_url = 4;
 }
-
-

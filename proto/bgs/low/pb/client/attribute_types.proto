@@ -1,11 +1,12 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
 
-import "bgs/low/pb/client/entity_types.proto";
 package bgs.protocol;
 
+import "bgs/low/pb/client/entity_types.proto";
 option java_package = "bnet.protocol";
 option java_outer_classname = "AttributeProto";
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message Variant {
   optional bool bool_value = 2;
@@ -34,5 +35,3 @@ message AttributeFilter {
   required .bgs.protocol.AttributeFilter.Operation op = 1;
   repeated .bgs.protocol.Attribute attribute = 2;
 }
-
-

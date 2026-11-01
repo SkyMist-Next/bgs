@@ -1,36 +1,23 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.account.v1;
 
 import "bgs/low/pb/client/entity_types.proto";
 import "bgs/low/pb/client/rpc_types.proto";
-package bgs.protocol.account.v1;
-
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 enum IdentityVerificationStatus {
   IDENT_NO_DATA = 0;
   IDENT_PENDING = 1;
-  IDENT_OVER_18 = 2;
-  IDENT_UNDER_18 = 3;
   IDENT_FAILED = 4;
   IDENT_SUCCESS = 5;
   IDENT_SUCC_MNL = 6;
   IDENT_UNKNOWN = 7;
 }
 
-enum RestrictionType {
-  UNKNOWN = 0;
-  GAME_ACCOUNT_BANNED = 1;
-  GAME_ACCOUNT_SUSPENDED = 2;
-  ACCOUNT_LOCKED = 3;
-  ACCOUNT_SQUELCHED = 4;
-}
-
 message AccountId {
-  required fixed32 id = 1 [(.bgs.protocol.valid) = {
-    unsigned {
-      exclude: 0
-    }
-  }];
+  required fixed32 id = 1;
 }
 
 message AccountLicense {
@@ -39,24 +26,9 @@ message AccountLicense {
 }
 
 message GameAccountHandle {
-  required fixed32 id = 1 [(.bgs.protocol.valid) = {
-    unsigned {
-      exclude: 0
-    }
-  }];
-  required fixed32 program = 2 [(.bgs.protocol.valid) = {
-    unsigned {
-      exclude: 0
-    }
-  }];
-  required uint32 region = 3 [(.bgs.protocol.valid) = {
-    unsigned {
-      limits {
-        min: 1
-        max: 255
-      }
-    }
-  }];
+  required fixed32 id = 1;
+  required fixed32 program = 2;
+  required uint32 region = 3;
 }
 
 message AccountReference {
@@ -68,9 +40,6 @@ message AccountReference {
 }
 
 message Identity {
-  option (.bgs.protocol.message_options) = {
-    custom_validator: true
-  };
   optional .bgs.protocol.account.v1.AccountId account = 1;
   optional .bgs.protocol.account.v1.GameAccountHandle game_account = 2;
   optional .bgs.protocol.ProcessId process = 3;
@@ -143,8 +112,6 @@ message AccountLevelInfo {
   optional .bgs.protocol.account.v1.IdentityVerificationStatus identity_check_status = 12;
   optional string email = 13;
   optional bool headless_account = 14;
-  optional bool test_account = 15;
-  repeated .bgs.protocol.account.v1.AccountRestriction restriction = 16;
 }
 
 message PrivacyInfo {
@@ -157,7 +124,6 @@ message PrivacyInfo {
   optional bool is_visible_for_view_friends = 4;
   optional bool is_hidden_from_friend_finder = 5;
   optional .bgs.protocol.account.v1.PrivacyInfo.GameInfoPrivacy game_info_privacy = 6 [default = PRIVACY_FRIENDS];
-  optional bool only_allow_friend_whispers = 7;
 }
 
 message ParentalControlInfo {
@@ -167,8 +133,6 @@ message ParentalControlInfo {
   optional bool can_receive_voice = 6;
   optional bool can_send_voice = 7;
   repeated bool play_schedule = 8;
-  optional bool can_join_group = 9;
-  optional bool can_use_profile = 10;
 }
 
 message GameLevelInfo {
@@ -232,7 +196,7 @@ message GameSessionLocation {
 message CAIS {
   optional uint32 played_minutes = 1;
   optional uint32 rested_minutes = 2;
-  optional uint64 last_heard_time = 3;
+  optional uint64 last_heard_time = 3 [deprecated = true];
 }
 
 message GameAccountList {
@@ -272,7 +236,7 @@ message AuthorizedData {
 }
 
 message IgrId {
-   oneof type {
+  oneof type {
     .bgs.protocol.account.v1.GameAccountHandle game_account = 1;
     fixed32 external_id = 2;
   }
@@ -282,14 +246,3 @@ message IgrAddress {
   optional string client_address = 1;
   optional uint32 region = 2;
 }
-
-message AccountRestriction {
-  optional uint32 restriction_id = 1;
-  optional fixed32 program = 2;
-  optional .bgs.protocol.account.v1.RestrictionType type = 3;
-  repeated fixed32 platform = 4;
-  optional uint64 expire_time = 5;
-  optional uint64 created_time = 6;
-}
-
-

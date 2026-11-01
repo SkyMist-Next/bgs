@@ -1,0 +1,21 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
+syntax = "proto2";
+
+package bgs.protocol;
+
+option java_package = "bnet.protocol";
+option java_outer_classname = "TraceTypesProto";
+option optimize_for = CODE_SIZE;
+
+message TraceInfo {
+  enum Sampling {
+    YES = 0;
+    NO = 1;
+    DEFER = 2;
+  }
+  optional string session_id = 1;
+  optional string trace_id = 2;
+  optional string span_id = 3;
+  optional string parent_span_id = 4;
+  optional .bgs.protocol.TraceInfo.Sampling sampling = 5 [default = DEFER];
+}

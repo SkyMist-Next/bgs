@@ -1,12 +1,13 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.authentication.v1;
 
 import "bgs/low/pb/client/account_types.proto";
 import "bgs/low/pb/client/content_handle_types.proto";
 import "bgs/low/pb/client/entity_types.proto";
 import "bgs/low/pb/client/rpc_types.proto";
-package bgs.protocol.authentication.v1;
-
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 option cc_generic_services = false;
 
 message ModuleLoadRequest {
@@ -127,118 +128,72 @@ message VerifyWebCredentialsRequest {
 }
 
 service AuthenticationListener {
-  option (.bgs.protocol.service_options) = {
-    descriptor_name: "bnet.protocol.authentication.AuthenticationClient"
-  };
-  option (.bgs.protocol.sdk_service_options) = {
-    inbound: true
-  };
-  rpc OnModuleLoad(.bgs.protocol.authentication.v1.ModuleLoadRequest) returns (.bgs.protocol.NO_RESPONSE) {
+  option (bgs.protocol.service_options) = { descriptor_name: "bnet.protocol.authentication.AuthenticationClient" };
+  option (bgs.protocol.sdk_service_options) = { inbound: true };
+  rpc OnModuleLoad (.bgs.protocol.authentication.v1.ModuleLoadRequest) returns (.bgs.protocol.NO_RESPONSE) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 1
-    };
+    option (bgs.protocol.method_options) = { id: 1 };
   }
-  rpc OnModuleMessage(.bgs.protocol.authentication.v1.ModuleMessageRequest) returns (.bgs.protocol.NoData) {
+  rpc OnModuleMessage (.bgs.protocol.authentication.v1.ModuleMessageRequest) returns (.bgs.protocol.NoData) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 2
-    };
+    option (bgs.protocol.method_options) = { id: 2 };
   }
-  rpc OnServerStateChange(.bgs.protocol.authentication.v1.ServerStateChangeRequest) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 4
-    };
+  rpc OnServerStateChange (.bgs.protocol.authentication.v1.ServerStateChangeRequest) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 4 };
   }
-  rpc OnLogonComplete(.bgs.protocol.authentication.v1.LogonResult) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 5
-    };
+  rpc OnLogonComplete (.bgs.protocol.authentication.v1.LogonResult) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 5 };
   }
-  rpc OnMemModuleLoad(.bgs.protocol.authentication.v1.MemModuleLoadRequest) returns (.bgs.protocol.authentication.v1.MemModuleLoadResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 6
-    };
+  rpc OnMemModuleLoad (.bgs.protocol.authentication.v1.MemModuleLoadRequest) returns (.bgs.protocol.authentication.v1.MemModuleLoadResponse) {
+    option (bgs.protocol.method_options) = { id: 6 };
   }
-  rpc OnLogonUpdate(.bgs.protocol.authentication.v1.LogonUpdateRequest) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 10
-    };
+  rpc OnLogonUpdate (.bgs.protocol.authentication.v1.LogonUpdateRequest) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 10 };
   }
-  rpc OnVersionInfoUpdated(.bgs.protocol.authentication.v1.VersionInfoNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 11
-    };
+  rpc OnVersionInfoUpdated (.bgs.protocol.authentication.v1.VersionInfoNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 11 };
   }
-  rpc OnLogonQueueUpdate(.bgs.protocol.authentication.v1.LogonQueueUpdateRequest) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 12
-    };
+  rpc OnLogonQueueUpdate (.bgs.protocol.authentication.v1.LogonQueueUpdateRequest) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 12 };
   }
-  rpc OnLogonQueueEnd(.bgs.protocol.NoData) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 13
-    };
+  rpc OnLogonQueueEnd (.bgs.protocol.NoData) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 13 };
   }
-  rpc OnGameAccountSelected(.bgs.protocol.authentication.v1.GameAccountSelectedRequest) returns (.bgs.protocol.NO_RESPONSE) {
+  rpc OnGameAccountSelected (.bgs.protocol.authentication.v1.GameAccountSelectedRequest) returns (.bgs.protocol.NO_RESPONSE) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 14
-    };
+    option (bgs.protocol.method_options) = { id: 14 };
   }
 }
 
 service AuthenticationService {
-  option (.bgs.protocol.service_options) = {
-    descriptor_name: "bnet.protocol.authentication.AuthenticationServer"
-  };
-  option (.bgs.protocol.sdk_service_options) = {
-    outbound: true
-  };
-  rpc Logon(.bgs.protocol.authentication.v1.LogonRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 1
-    };
+  option (bgs.protocol.service_options) = { descriptor_name: "bnet.protocol.authentication.AuthenticationServer" };
+  option (bgs.protocol.sdk_service_options) = { outbound: true };
+  rpc Logon (.bgs.protocol.authentication.v1.LogonRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 1 };
   }
-  rpc ModuleNotify(.bgs.protocol.authentication.v1.ModuleNotification) returns (.bgs.protocol.NoData) {
+  rpc ModuleNotify (.bgs.protocol.authentication.v1.ModuleNotification) returns (.bgs.protocol.NoData) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 2
-    };
+    option (bgs.protocol.method_options) = { id: 2 };
   }
-  rpc ModuleMessage(.bgs.protocol.authentication.v1.ModuleMessageRequest) returns (.bgs.protocol.NoData) {
+  rpc ModuleMessage (.bgs.protocol.authentication.v1.ModuleMessageRequest) returns (.bgs.protocol.NoData) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 3
-    };
+    option (bgs.protocol.method_options) = { id: 3 };
   }
-  rpc SelectGameAccount_DEPRECATED(.bgs.protocol.EntityId) returns (.bgs.protocol.NoData) {
+  rpc SelectGameAccount_DEPRECATED (.bgs.protocol.EntityId) returns (.bgs.protocol.NoData) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 4
-    };
+    option (bgs.protocol.method_options) = { id: 4 };
   }
-  rpc GenerateSSOToken(.bgs.protocol.authentication.v1.GenerateSSOTokenRequest) returns (.bgs.protocol.authentication.v1.GenerateSSOTokenResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 5
-    };
+  rpc GenerateSSOToken (.bgs.protocol.authentication.v1.GenerateSSOTokenRequest) returns (.bgs.protocol.authentication.v1.GenerateSSOTokenResponse) {
+    option (bgs.protocol.method_options) = { id: 5 };
   }
-  rpc SelectGameAccount(.bgs.protocol.authentication.v1.SelectGameAccountRequest) returns (.bgs.protocol.NoData) {
+  rpc SelectGameAccount (.bgs.protocol.authentication.v1.SelectGameAccountRequest) returns (.bgs.protocol.NoData) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 6
-    };
+    option (bgs.protocol.method_options) = { id: 6 };
   }
-  rpc VerifyWebCredentials(.bgs.protocol.authentication.v1.VerifyWebCredentialsRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 7
-    };
+  rpc VerifyWebCredentials (.bgs.protocol.authentication.v1.VerifyWebCredentialsRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 7 };
   }
-  rpc GenerateWebCredentials(.bgs.protocol.authentication.v1.GenerateWebCredentialsRequest) returns (.bgs.protocol.authentication.v1.GenerateWebCredentialsResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 8
-    };
+  rpc GenerateWebCredentials (.bgs.protocol.authentication.v1.GenerateWebCredentialsRequest) returns (.bgs.protocol.authentication.v1.GenerateWebCredentialsResponse) {
+    option (bgs.protocol.method_options) = { id: 8 };
   }
 }
-
-

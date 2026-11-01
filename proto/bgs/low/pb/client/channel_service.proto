@@ -1,12 +1,13 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.channel.v1;
 
 import "bgs/low/pb/client/account_types.proto";
 import "bgs/low/pb/client/entity_types.proto";
 import "bgs/low/pb/client/channel_types.proto";
 import "bgs/low/pb/client/rpc_types.proto";
-package bgs.protocol.channel.v1;
-
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 option cc_generic_services = false;
 
 message RemoveMemberRequest {
@@ -43,7 +44,6 @@ message JoinNotification {
   required .bgs.protocol.channel.v1.ChannelState channel_state = 3;
   optional .bgs.protocol.channel.v1.ChannelId channel_id = 4;
   optional .bgs.protocol.account.v1.Identity subscriber = 5;
-  optional .bgs.protocol.account.v1.AccountId subscriber_id = 6;
 }
 
 message MemberAddedNotification {
@@ -82,7 +82,6 @@ message UpdateChannelStateNotification {
   required .bgs.protocol.channel.v1.ChannelState state_change = 2;
   optional .bgs.protocol.channel.v1.ChannelId channel_id = 3;
   optional .bgs.protocol.account.v1.Identity subscriber = 4;
-  optional .bgs.protocol.account.v1.AccountId subscriber_id = 5;
 }
 
 message UpdateMemberStateNotification {
@@ -93,81 +92,47 @@ message UpdateMemberStateNotification {
 }
 
 service ChannelService {
-  option (.bgs.protocol.service_options) = {
-    descriptor_name: "bnet.protocol.channel.Channel"
-  };
-  option (.bgs.protocol.sdk_service_options) = {
-    outbound: true
-  };
-  rpc RemoveMember(.bgs.protocol.channel.v1.RemoveMemberRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 2
-    };
+  option (bgs.protocol.service_options) = { descriptor_name: "bnet.protocol.channel.Channel" };
+  option (bgs.protocol.sdk_service_options) = { outbound: true };
+  rpc RemoveMember (.bgs.protocol.channel.v1.RemoveMemberRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 2 };
   }
-  rpc SendMessage(.bgs.protocol.channel.v1.SendMessageRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 3
-    };
+  rpc SendMessage (.bgs.protocol.channel.v1.SendMessageRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 3 };
   }
-  rpc UpdateChannelState(.bgs.protocol.channel.v1.UpdateChannelStateRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 4
-    };
+  rpc UpdateChannelState (.bgs.protocol.channel.v1.UpdateChannelStateRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 4 };
   }
-  rpc UpdateMemberState(.bgs.protocol.channel.v1.UpdateMemberStateRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 5
-    };
+  rpc UpdateMemberState (.bgs.protocol.channel.v1.UpdateMemberStateRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 5 };
   }
-  rpc Dissolve(.bgs.protocol.channel.v1.DissolveRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 6
-    };
+  rpc Dissolve (.bgs.protocol.channel.v1.DissolveRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 6 };
   }
 }
 
 service ChannelListener {
-  option (.bgs.protocol.service_options) = {
-    descriptor_name: "bnet.protocol.channel.ChannelSubscriber"
-  };
-  option (.bgs.protocol.sdk_service_options) = {
-    inbound: true
-  };
-  rpc OnJoin(.bgs.protocol.channel.v1.JoinNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 1
-    };
+  option (bgs.protocol.service_options) = { descriptor_name: "bnet.protocol.channel.ChannelSubscriber" };
+  option (bgs.protocol.sdk_service_options) = { inbound: true };
+  rpc OnJoin (.bgs.protocol.channel.v1.JoinNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 1 };
   }
-  rpc OnMemberAdded(.bgs.protocol.channel.v1.MemberAddedNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 2
-    };
+  rpc OnMemberAdded (.bgs.protocol.channel.v1.MemberAddedNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 2 };
   }
-  rpc OnLeave(.bgs.protocol.channel.v1.LeaveNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 3
-    };
+  rpc OnLeave (.bgs.protocol.channel.v1.LeaveNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 3 };
   }
-  rpc OnMemberRemoved(.bgs.protocol.channel.v1.MemberRemovedNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 4
-    };
+  rpc OnMemberRemoved (.bgs.protocol.channel.v1.MemberRemovedNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 4 };
   }
-  rpc OnSendMessage(.bgs.protocol.channel.v1.SendMessageNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 5
-    };
+  rpc OnSendMessage (.bgs.protocol.channel.v1.SendMessageNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 5 };
   }
-  rpc OnUpdateChannelState(.bgs.protocol.channel.v1.UpdateChannelStateNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 6
-    };
+  rpc OnUpdateChannelState (.bgs.protocol.channel.v1.UpdateChannelStateNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 6 };
   }
-  rpc OnUpdateMemberState(.bgs.protocol.channel.v1.UpdateMemberStateNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 7
-    };
+  rpc OnUpdateMemberState (.bgs.protocol.channel.v1.UpdateMemberStateNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 7 };
   }
 }
-
-

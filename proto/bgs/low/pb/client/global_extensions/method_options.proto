@@ -1,20 +1,16 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
 
-import "google/protobuf/descriptor.proto";
 package bgs.protocol;
 
+import "google/protobuf/descriptor.proto";
 option java_package = "bnet.protocol";
 option java_outer_classname = "MethodOptionsProto";
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message BGSMethodOptions {
   optional uint32 id = 1;
-  optional string topic = 2;
-  optional bool custom_select_shard = 3;
 }
-
 extend .google.protobuf.MethodOptions {
   optional .bgs.protocol.BGSMethodOptions method_options = 90000;
 }
-
-

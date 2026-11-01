@@ -1,3 +1,4 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
 
 package google.protobuf;
@@ -123,7 +124,7 @@ message FileOptions {
   optional bool py_generic_services = 18 [default = false];
   optional bool deprecated = 23 [default = false];
   repeated .google.protobuf.UninterpretedOption uninterpreted_option = 999;
-  extensions 1000 to 536870911;
+  extensions 1000 to max;
 }
 
 message MessageOptions {
@@ -131,7 +132,7 @@ message MessageOptions {
   optional bool no_standard_descriptor_accessor = 2 [default = false];
   optional bool deprecated = 3 [default = false];
   repeated .google.protobuf.UninterpretedOption uninterpreted_option = 999;
-  extensions 1000 to 536870911;
+  extensions 1000 to max;
 }
 
 message FieldOptions {
@@ -147,32 +148,32 @@ message FieldOptions {
   optional string experimental_map_key = 9;
   optional bool weak = 10 [default = false];
   repeated .google.protobuf.UninterpretedOption uninterpreted_option = 999;
-  extensions 1000 to 536870911;
+  extensions 1000 to max;
 }
 
 message EnumOptions {
   optional bool allow_alias = 2;
   optional bool deprecated = 3 [default = false];
   repeated .google.protobuf.UninterpretedOption uninterpreted_option = 999;
-  extensions 1000 to 536870911;
+  extensions 1000 to max;
 }
 
 message EnumValueOptions {
   optional bool deprecated = 1 [default = false];
   repeated .google.protobuf.UninterpretedOption uninterpreted_option = 999;
-  extensions 1000 to 536870911;
+  extensions 1000 to max;
 }
 
 message ServiceOptions {
   optional bool deprecated = 33 [default = false];
   repeated .google.protobuf.UninterpretedOption uninterpreted_option = 999;
-  extensions 1000 to 536870911;
+  extensions 1000 to max;
 }
 
 message MethodOptions {
   optional bool deprecated = 33 [default = false];
   repeated .google.protobuf.UninterpretedOption uninterpreted_option = 999;
-  extensions 1000 to 536870911;
+  extensions 1000 to max;
 }
 
 message UninterpretedOption {
@@ -198,5 +199,3 @@ message SourceCodeInfo {
   }
   repeated .google.protobuf.SourceCodeInfo.Location location = 1;
 }
-
-

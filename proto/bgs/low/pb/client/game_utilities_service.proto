@@ -1,15 +1,16 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.game_utilities.v1;
 
 import "bgs/low/pb/client/attribute_types.proto";
 import "bgs/low/pb/client/content_handle_types.proto";
 import "bgs/low/pb/client/entity_types.proto";
 import "bgs/low/pb/client/game_utilities_types.proto";
 import "bgs/low/pb/client/rpc_types.proto";
-package bgs.protocol.game_utilities.v1;
-
 option java_package = "bnet.protocol.game_utilities.v1";
 option java_outer_classname = "GameUtilitiesServiceProto";
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 option cc_generic_services = false;
 option java_generic_services = true;
 
@@ -83,53 +84,30 @@ message GetAllValuesForAttributeResponse {
 }
 
 service GameUtilitiesService {
-  option (.bgs.protocol.service_options) = {
-    descriptor_name: "bnet.protocol.game_utilities.GameUtilities"
-  };
-  option (.bgs.protocol.sdk_service_options) = {
-    inbound: true
-    outbound: true
-  };
-  rpc ProcessClientRequest(.bgs.protocol.game_utilities.v1.ClientRequest) returns (.bgs.protocol.game_utilities.v1.ClientResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 1
-    };
+  option (bgs.protocol.service_options) = { descriptor_name: "bnet.protocol.game_utilities.GameUtilities" };
+  option (bgs.protocol.sdk_service_options) = { inbound: true outbound: true };
+  rpc ProcessClientRequest (.bgs.protocol.game_utilities.v1.ClientRequest) returns (.bgs.protocol.game_utilities.v1.ClientResponse) {
+    option (bgs.protocol.method_options) = { id: 1 };
   }
-  rpc PresenceChannelCreated(.bgs.protocol.game_utilities.v1.PresenceChannelCreatedRequest) returns (.bgs.protocol.NoData) {
-    option (.bgs.protocol.method_options) = {
-      id: 2
-    };
+  rpc PresenceChannelCreated (.bgs.protocol.game_utilities.v1.PresenceChannelCreatedRequest) returns (.bgs.protocol.NoData) {
+    option (bgs.protocol.method_options) = { id: 2 };
   }
-  rpc GetPlayerVariables(.bgs.protocol.game_utilities.v1.GetPlayerVariablesRequest) returns (.bgs.protocol.game_utilities.v1.GetPlayerVariablesResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 3
-    };
+  rpc GetPlayerVariables (.bgs.protocol.game_utilities.v1.GetPlayerVariablesRequest) returns (.bgs.protocol.game_utilities.v1.GetPlayerVariablesResponse) {
+    option (bgs.protocol.method_options) = { id: 3 };
   }
-  rpc ProcessServerRequest(.bgs.protocol.game_utilities.v1.ServerRequest) returns (.bgs.protocol.game_utilities.v1.ServerResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 6
-    };
+  rpc ProcessServerRequest (.bgs.protocol.game_utilities.v1.ServerRequest) returns (.bgs.protocol.game_utilities.v1.ServerResponse) {
+    option (bgs.protocol.method_options) = { id: 6 };
   }
-  rpc OnGameAccountOnline(.bgs.protocol.game_utilities.v1.GameAccountOnlineNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 7
-    };
+  rpc OnGameAccountOnline (.bgs.protocol.game_utilities.v1.GameAccountOnlineNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 7 };
   }
-  rpc OnGameAccountOffline(.bgs.protocol.game_utilities.v1.GameAccountOfflineNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 8
-    };
+  rpc OnGameAccountOffline (.bgs.protocol.game_utilities.v1.GameAccountOfflineNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 8 };
   }
-  rpc GetAchievementsFile(.bgs.protocol.game_utilities.v1.GetAchievementsFileRequest) returns (.bgs.protocol.game_utilities.v1.GetAchievementsFileResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 9
-    };
+  rpc GetAchievementsFile (.bgs.protocol.game_utilities.v1.GetAchievementsFileRequest) returns (.bgs.protocol.game_utilities.v1.GetAchievementsFileResponse) {
+    option (bgs.protocol.method_options) = { id: 9 };
   }
-  rpc GetAllValuesForAttribute(.bgs.protocol.game_utilities.v1.GetAllValuesForAttributeRequest) returns (.bgs.protocol.game_utilities.v1.GetAllValuesForAttributeResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 10
-    };
+  rpc GetAllValuesForAttribute (.bgs.protocol.game_utilities.v1.GetAllValuesForAttributeRequest) returns (.bgs.protocol.game_utilities.v1.GetAllValuesForAttributeResponse) {
+    option (bgs.protocol.method_options) = { id: 10 };
   }
 }
-
-

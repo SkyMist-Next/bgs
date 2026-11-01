@@ -1,12 +1,13 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
+
+package bgs.protocol.connection.v1;
 
 import "bgs/low/pb/client/content_handle_types.proto";
 import "bgs/low/pb/client/rpc_types.proto";
-package bgs.protocol.connection.v1;
-
 option java_package = "bnet.protocol.connection.v1";
 option java_outer_classname = "ConnectionServiceProto";
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 option cc_generic_services = false;
 option java_generic_services = true;
 
@@ -51,7 +52,6 @@ message EchoRequest {
   optional fixed64 time = 1;
   optional bool network_only = 2 [default = false];
   optional bytes payload = 3;
-  optional .bgs.protocol.ProcessId forward = 4;
 }
 
 message EchoResponse {
@@ -72,50 +72,29 @@ message EncryptRequest {
 }
 
 service ConnectionService {
-  option (.bgs.protocol.service_options) = {
-    descriptor_name: "bnet.protocol.connection.ConnectionService"
-  };
-  option (.bgs.protocol.sdk_service_options) = {
-    inbound: true
-    outbound: true
-  };
-  rpc Connect(.bgs.protocol.connection.v1.ConnectRequest) returns (.bgs.protocol.connection.v1.ConnectResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 1
-    };
+  option (bgs.protocol.service_options) = { descriptor_name: "bnet.protocol.connection.ConnectionService" };
+  option (bgs.protocol.sdk_service_options) = { inbound: true outbound: true };
+  rpc Connect (.bgs.protocol.connection.v1.ConnectRequest) returns (.bgs.protocol.connection.v1.ConnectResponse) {
+    option (bgs.protocol.method_options) = { id: 1 };
   }
-  rpc Bind(.bgs.protocol.connection.v1.BindRequest) returns (.bgs.protocol.connection.v1.BindResponse) {
+  rpc Bind (.bgs.protocol.connection.v1.BindRequest) returns (.bgs.protocol.connection.v1.BindResponse) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 2
-    };
+    option (bgs.protocol.method_options) = { id: 2 };
   }
-  rpc Echo(.bgs.protocol.connection.v1.EchoRequest) returns (.bgs.protocol.connection.v1.EchoResponse) {
-    option (.bgs.protocol.method_options) = {
-      id: 3
-    };
+  rpc Echo (.bgs.protocol.connection.v1.EchoRequest) returns (.bgs.protocol.connection.v1.EchoResponse) {
+    option (bgs.protocol.method_options) = { id: 3 };
   }
-  rpc ForceDisconnect(.bgs.protocol.connection.v1.DisconnectNotification) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 4
-    };
+  rpc ForceDisconnect (.bgs.protocol.connection.v1.DisconnectNotification) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 4 };
   }
-  rpc KeepAlive(.bgs.protocol.NoData) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 5
-    };
+  rpc KeepAlive (.bgs.protocol.NoData) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 5 };
   }
-  rpc Encrypt(.bgs.protocol.connection.v1.EncryptRequest) returns (.bgs.protocol.NoData) {
+  rpc Encrypt (.bgs.protocol.connection.v1.EncryptRequest) returns (.bgs.protocol.NoData) {
     option deprecated = true;
-    option (.bgs.protocol.method_options) = {
-      id: 6
-    };
+    option (bgs.protocol.method_options) = { id: 6 };
   }
-  rpc RequestDisconnect(.bgs.protocol.connection.v1.DisconnectRequest) returns (.bgs.protocol.NO_RESPONSE) {
-    option (.bgs.protocol.method_options) = {
-      id: 7
-    };
+  rpc RequestDisconnect (.bgs.protocol.connection.v1.DisconnectRequest) returns (.bgs.protocol.NO_RESPONSE) {
+    option (bgs.protocol.method_options) = { id: 7 };
   }
 }
-
-

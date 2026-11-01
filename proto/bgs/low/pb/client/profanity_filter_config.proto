@@ -1,8 +1,9 @@
+// Recovered from WoW 7.3.5 build 26972; see manifest.json at the dump root.
 syntax = "proto2";
 
 package bgs.protocol.profanity.v1;
 
-option optimize_for = SPEED;
+option optimize_for = CODE_SIZE;
 
 message WordFilter {
   required string type = 1;
@@ -12,5 +13,3 @@ message WordFilter {
 message WordFilters {
   repeated .bgs.protocol.profanity.v1.WordFilter filters = 1;
 }
-
-
