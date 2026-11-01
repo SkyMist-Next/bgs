@@ -4,9 +4,9 @@
 'use strict';
 
 const FNV = require('fnv').FNV;
-const protobuf = require('protobufjs');
+const loadProto = require('../utils/protobuf');
 
-const Header = protobuf.loadSync('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
+const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
 
 class Service {
     constructor(name, file) {
@@ -14,7 +14,7 @@ class Service {
         this.name = name;
         this.methods = [];
         this.handlers = [];
-        this.rootNamespace = protobuf.loadSync(file);
+        this.rootNamespace = loadProto(file);
 
         let service = this.rootNamespace.lookupService(this.name);
 
@@ -35,7 +35,7 @@ class Service {
 
     registerHandler(name, handler) {
         this.methods.forEach((method) => {
-            if (method.hasOwnProperty('name') && method.name === name) {
+            if (Object.hasOwn(method, 'name') && method.name === name) {
                 this.handlers[method.getOption('(.bgs.protocol.method_options).id')] = handler;
             }
         });
@@ -44,7 +44,7 @@ class Service {
     sendError(context, error) {
         let errorHeader = Header.fromObject(context.header);
 
-            if (!Number.isNaN(error)) {
+            if (Number.isInteger(error)) {
                 errorHeader.status = error;
             }
             else {
@@ -82,7 +82,7 @@ class Service {
                 return this.sendError(context, 0x00000BC5); //ERROR_RPC_MALFORMED_REQUEST
             }
 
-            return this.handlers[context.header.methodId](context).then((status) => {
+            return Promise.resolve().then(() => this.handlers[context.header.methodId](context)).then((status) => {
                 if(method.responseType !== '.bgs.protocol.NO_RESPONSE') {
                     let responseBuffer = responseType.encode(context.response).finish();
                     let responseHeader = Header.fromObject(context.header);

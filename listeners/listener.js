@@ -4,9 +4,9 @@
 'use strict';
 
 const FNV = require('fnv').FNV;
-const protobuf = require('protobufjs');
+const loadProto = require('../utils/protobuf');
 
-const Header = protobuf.loadSync('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
+const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
 
 class Listener {
     constructor(name, file) {
@@ -15,7 +15,7 @@ class Listener {
         this.amqpChannel = undefined;
         this.clientQueue = undefined;
         this.messageQueue = [];
-        this.rootNamespace = protobuf.loadSync(file);
+        this.rootNamespace = loadProto(file);
 
         let service = this.rootNamespace.lookupService(this.name);
         this.methods = service.methodsArray;
@@ -24,21 +24,23 @@ class Listener {
         hash.update(service.getOption('(.bgs.protocol.service_options).descriptor_name'));
         this.hash = parseInt(hash.digest('hex'), 16);
 
-        global.amqpConnection.createChannel().
+        this.channelReady = global.amqpConnection.createChannel().
         then((channel) => {
             this.amqpChannel = channel;
         });
     }
 
-    destroy () {
-        this.amqpChannel.close();
+    async destroy() {
+        await this.channelReady;
+        await this.amqpChannel.close();
     }
 
     setClientQueueName(queueName) {
         this.clientQueue = queueName;
     }
 
-    call(methodName, builder) {
+    async call(methodName, builder) {
+        await this.channelReady;
         let method = this.methods.find((element) => {
             return element.name === methodName;
         });

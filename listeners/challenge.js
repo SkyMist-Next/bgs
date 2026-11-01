@@ -9,7 +9,7 @@ class ChallengeListener extends Listener {
     }
 
     OnExternalChallenge(url) {
-        this.call('OnExternalChallenge', (request) => {
+        return this.call('OnExternalChallenge', (request) => {
             request.payloadType = 'web_auth_url';
             request.payload = Buffer.from(url, 'ascii');
         });

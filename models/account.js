@@ -1,8 +1,8 @@
 'use strict';
 const Long = require('long');
-const protobuf = require('protobufjs');
+const loadProto = require('../utils/protobuf');
 
-const entityTypes = protobuf.loadSync('proto/bgs/low/pb/client/entity_types.proto');
+const entityTypes = loadProto('proto/bgs/low/pb/client/entity_types.proto');
 const entityId = entityTypes.lookupType('bgs.protocol.EntityId');
 
 module.exports = (sequelize, DataTypes) => {
@@ -18,7 +18,7 @@ module.exports = (sequelize, DataTypes) => {
             entityId() {
                 let id = entityId.create();
 
-                id.low = Long.fromString(this.id, true);
+                id.low = Long.fromString(String(this.id), true);
                 id.high = Long.fromBits(0, (0x1 << 24), true);
 
                 return id;
@@ -31,7 +31,7 @@ module.exports = (sequelize, DataTypes) => {
     });
 
     Account.associate = (models) => {
-        Account.hasMany(models.GameAccount, {as: 'gameAccounts', foreignKey: 'account_id', sourceKey: 'id'});
+        Account.hasMany(models.GameAccount, {as: 'gameAccounts', foreignKey: 'accountId', sourceKey: 'id'});
     };
 
     return Account;

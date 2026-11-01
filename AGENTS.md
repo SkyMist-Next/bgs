@@ -8,18 +8,22 @@ Entry points: `frontend.js` (client TCP connections), `rest.js` (web authenticat
 
 ## Build, Test, and Development Commands
 
-- `npm ci`: install locked dependencies.
+- `nvm use`: select Node.js 26.13.0 from `.nvmrc` (engine range `>=26.13.0 <27`).
+- `npm ci`: install locked dependencies with the runtime's bundled npm 11.20.0.
 - `npm run frontend`: start TCP frontend on port 1119.
 - `npm run rest`: start web authentication; development HTTPS uses port 443.
 - `npm run service -- authentication`: run the authentication worker; substitute other service modules as needed.
-- `npx --no-install eslint .`: lint JavaScript.
+- `npm run lint`: lint active JavaScript with ESLint flat configuration.
+- `npm test`: run focused tests with Node's built-in runner and controlled dependencies.
+- `npm run check:runtime`: load production dependencies and exercise native addons.
+- `node scripts/benchmark-auth.js`: compare synchronous and asynchronous password checks with local HTTP and dependency substitutes.
 - `node --check services/authentication.js`: check syntax; substitute the changed file.
 
-No build script exists. Verify dependency compatibility before using the legacy Node 10 Dockerfile.
+No application build script exists. The Dockerfile uses `node:26.13.0-trixie-slim`, builds production dependencies in a separate stage, and uses Tini in the runtime stage. Supply the startup command and configuration/certificate mounts externally. See `README.md` for validation and audit findings.
 
 ## Coding Style & Naming Conventions
 
-Use CommonJS, strict mode, four-space indentation, semicolons, and single quotes. Preserve surrounding line endings. Use PascalCase classes, camelCase helpers, and protocol-defined RPC names. Name migrations like `20180904090839-add-billing.js`. ESLint extends recommended JavaScript and Node rules and requires `module.exports`.
+Use CommonJS, strict mode, four-space indentation, semicolons, and single quotes. Preserve surrounding line endings. Use PascalCase classes, camelCase helpers, and protocol-defined RPC names. Name migrations like `20180904090839-add-billing.js`. ESLint uses `eslint.config.js`, recommended JavaScript and `eslint-plugin-n` rules, and requires `module.exports`. The unused, incomplete `services/wow/realmlist.js` stub is explicitly excluded from the active-code lint gate and must remain unchanged during this migration.
 
 ## High Availability & Performance
 
@@ -27,7 +31,7 @@ Design changes to support multiple instances, explicit connection-state ownershi
 
 ## Testing Guidelines
 
-No test framework, coverage threshold, or `npm test` script is configured. Run lint, syntax checks, and affected flows. Check `/alive`, `/ready`, and authentication for REST changes. Validate worker restarts, dependency interruptions, and concurrent requests where relevant.
+Use Node's built-in test runner (`npm test`); no integration stack or coverage threshold is configured. Tests cover model associations, 64-bit identifiers, fixed protobuf fixtures and service hashes, timestamps, REST/RPC authentication, asynchronous password verification, dependency rejection, and logging. Run lint, syntax checks, and affected flows. Check `/alive`, `/ready`, and authentication for REST changes. Live worker restarts, dependency interruptions, failover, and production performance require separate integration acceptance.
 
 ## Commit & Pull Request Guidelines
 

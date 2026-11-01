@@ -1,10 +1,12 @@
+'use strict';
+
 const crypto = require('crypto');
 const zlib = require('zlib');
-const protobuf = require('protobufjs');
+const loadProto = require('../utils/protobuf');
 
 const Service = require('./service.js');
 
-const gameUtilitiesTypes = protobuf.loadSync('proto/bgs/low/pb/client/game_utilities_types.proto');
+const gameUtilitiesTypes = loadProto('proto/bgs/low/pb/client/game_utilities_types.proto');
 
 const Attribute = gameUtilitiesTypes.lookupType('bgs.protocol.Attribute');
 const Variant = gameUtilitiesTypes.lookupType('bgs.protocol.Variant');
@@ -209,7 +211,7 @@ class GameUtilitiesService extends Service {
     }
 
     handleCommand(command, params) {
-        if (this.commandHandlers.hasOwnProperty(command.name)) {
+        if (Object.hasOwn(this.commandHandlers, command.name)) {
             return this.commandHandlers[command.name](params, command.value).then((responseParams) => {
                 let attributes = [];
                 Object.getOwnPropertyNames(responseParams).forEach((responseParamName) => {

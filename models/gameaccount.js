@@ -1,10 +1,9 @@
 'use strict';
-const appRoot = require('app-root-path');
-const FourCC = require(appRoot + '/utils/fourcc');
+const FourCC = require('../utils/fourcc');
 const Long = require('long');
-const protobuf = require('protobufjs');
+const loadProto = require('../utils/protobuf');
 
-const entityTypes = protobuf.loadSync('proto/bgs/low/pb/client/entity_types.proto');
+const entityTypes = loadProto('proto/bgs/low/pb/client/entity_types.proto');
 const entityId = entityTypes.lookupType('bgs.protocol.EntityId');
 
 module.exports = (sequelize, DataTypes) => {
@@ -26,7 +25,7 @@ module.exports = (sequelize, DataTypes) => {
                 let id = entityId.create();
                 let programId = new FourCC(this.program);
 
-                id.low = Long.fromString(this.id, true);
+                id.low = Long.fromString(String(this.id), true);
                 id.high = Long.fromBits(programId.getIntValue(), (0x2 << 24) | (this.region & 0xFF), true);
 
                 return id;
@@ -38,7 +37,7 @@ module.exports = (sequelize, DataTypes) => {
     });
 
     GameAccount.associate = (models) => {
-        GameAccount.belongsTo(models.Account, { foreignKey: 'account_id', targetKey: 'id'});
+        GameAccount.belongsTo(models.Account, { foreignKey: 'accountId', targetKey: 'id'});
     };
 
     return GameAccount;

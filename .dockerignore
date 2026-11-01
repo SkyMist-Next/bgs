@@ -4,5 +4,11 @@
 /migrations/
 .idea
 /skaffold.yaml
-/.eslintrc.json
+/eslint.config.js
 .git
+
+/config/
+/certs/
+/logs/
+/test/
+/npm-debug.log

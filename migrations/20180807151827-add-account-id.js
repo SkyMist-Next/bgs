@@ -6,7 +6,8 @@ module.exports = {
             type: Sequelize.BIGINT,
             allowNull: false
         }).then(() => {
-            return queryInterface.addConstraint('game_accounts', ['account_id'], {
+            return queryInterface.addConstraint('game_accounts', {
+                fields: ['account_id'],
                 type: 'foreign key',
                 name: 'account_key',
                 references: {

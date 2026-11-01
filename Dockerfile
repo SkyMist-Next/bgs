@@ -1,18 +1,19 @@
-FROM node:10-alpine
-
-# Create app directory
-RUN mkdir -p /usr/src/app/logs
-RUN mkdir -p /usr/src/app/config
-RUN mkdir -p /usr/src/app/certs
+FROM node:26.13.0-trixie-slim AS dependencies
 WORKDIR /usr/src/app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Install app dependencies
-RUN apk add --no-cache tini python make gcc g++
-COPY package*.json /usr/src/app/
-RUN npm install
-
-# Bundle app source
-COPY . /usr/src/app
-
+FROM node:26.13.0-trixie-slim AS runtime
+ENV NODE_ENV=production
+WORKDIR /usr/src/app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p logs config certs
+COPY --from=dependencies /usr/src/app/node_modules ./node_modules
+COPY . .
 EXPOSE 443 1119
-ENTRYPOINT ["/sbin/tini", "-v", "-e", "128", "--"]
+ENTRYPOINT ["/usr/bin/tini", "-v", "-e", "128", "--"]

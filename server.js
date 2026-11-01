@@ -4,32 +4,16 @@
 'use strict';
 
 const amqplib = require('amqplib');
-const winston = require('winston');
+const createLogger = require('./utils/logger');
 const models = require('./models');
 const { Etcd3 } = require('etcd3');
 
 const ServiceReceiver = require('./messaging/receiver');
 
-const winstonFileTransportConfig = require('./config/winston.json');
-const winstonFileTransport = new winston.transports.File(winstonFileTransportConfig);
-let winstonTransports = [winstonFileTransport];
-
-if (process.env.NODE_ENV === 'development') {
-    const winstonConsoleTransport = new winston.transports.Console({
-        level: 'debug',
-        handleExceptions: true,
-        json: false,
-        colorize: true
-    });
-
-    winstonTransports.push(winstonConsoleTransport);
-}
-
-winston.emitErrs = true;
-
 global.amqpConnection = null;
 global.serviceReceiver = null;
-global.logger = new winston.Logger({transports: winstonTransports, exitOnError: false});
+// eslint-disable-next-line n/no-missing-require -- Operator-supplied configuration.
+global.logger = createLogger(require('./config/winston.json'));
 global.etcd3 = new Etcd3({hosts: process.env.ETCD_HOST});
 
 let amqpUrl = 'amqp://' + process.env.RABBITMQ_USERNAME + ':' + process.env.RABBITMQ_PASSWORD + '@' + process.env.RABBITMQ_SERVICE_NAME;

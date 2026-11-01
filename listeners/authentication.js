@@ -23,7 +23,7 @@ class AuthenticationListener extends Listener {
     }
 
     OnLogonComplete(status, account = undefined, gameAccounts = undefined) {
-        this.call('OnLogonComplete', (request) => {
+        return this.call('OnLogonComplete', (request) => {
             request.errorCode = status;
 
             if(account) {

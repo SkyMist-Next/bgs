@@ -1,7 +1,7 @@
 'use strict';
-const protobuf = require('protobufjs');
+const loadProto = require('./utils/protobuf');
 
-const rootNamespace = protobuf.loadSync('proto/bgs/low/pb/client/rpc_types.proto');
+const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const Header = rootNamespace.lookupType('bgs.protocol.Header');
 
 module.exports = class Connection {

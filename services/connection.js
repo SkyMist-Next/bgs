@@ -4,12 +4,11 @@
 'use strict';
 
 const microtime = require('microtime');
-const protobuf = require('protobufjs');
-const appRoot = require('app-root-path');
-const Connection = require(appRoot + '/connection');
-const Service = require(appRoot + '/services/service');
+const loadProto = require('../utils/protobuf');
+const Connection = require('../connection');
+const Service = require('./service');
 
-const rootNamespace = protobuf.loadSync('proto/bgs/low/pb/client/rpc_types.proto');
+const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const ProcessId = rootNamespace.lookupType('bgs.protocol.ProcessId');
 
 class ConnectionService extends Service {

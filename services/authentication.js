@@ -4,12 +4,11 @@
 'use strict';
 
 const crypto = require('crypto');
-const appRoot = require('app-root-path');
 
-const Service = require(appRoot + '/services/service');
-const ChallengeListener = require(appRoot + '/listeners/challenge');
-const AuthenticationListener = require(appRoot + '/listeners/authentication');
-const models = require(appRoot + '/models/');
+const Service = require('./service');
+const ChallengeListener = require('../listeners/challenge');
+const AuthenticationListener = require('../listeners/authentication');
+const models = require('../models');
 
 class AuthenticationService extends Service {
     constructor() {
@@ -20,66 +19,66 @@ class AuthenticationService extends Service {
         this.registerHandler('VerifyWebCredentials', this.VerifyWebCredential.bind(this));
     }
 
-    Logon(context) {
-        global.logger.debug('Logon Request for program '+context.request.program+' on '+context.request.platform);
-
-        let loginTicket = crypto.randomBytes(20).toString('hex');
-        let loginTicketPath = '/aurora/services/' + this.getServiceName() + '/loginTickets/' + loginTicket;
-
-        let challengeListener = new ChallengeListener(context);
-
-        let loginTicketLease = global.etcd3.lease(30);
-
-        return loginTicketLease.put(loginTicketPath).value(loginTicket).then(() => {
-            return loginTicketLease.put(loginTicketPath + '/program').value(context.request.program).exec();
-        }).then(() => {
-            global.etcd3.get('/aurora/services/' + this.getServiceName() + '/WebAuthUrl').string().then((webAuthUrl) => {
-                challengeListener.OnExternalChallenge(webAuthUrl + loginTicket);
-            });
-            return Promise.resolve(0);
-        }).catch((error) => {
+    async Logon(context) {
+        global.logger.debug('Logon Request for program ' + context.request.program + ' on ' + context.request.platform);
+        const loginTicket = crypto.randomBytes(20).toString('hex');
+        const path = '/aurora/services/' + this.getServiceName() + '/loginTickets/' + loginTicket;
+        try {
+            const lease = global.etcd3.lease(30);
+            await lease.put(path).value(loginTicket).exec();
+            await lease.put(path + '/program').value(context.request.program).exec();
+            const webAuthUrl = await global.etcd3.get('/aurora/services/' + this.getServiceName() + '/WebAuthUrl').string();
+            const listener = new ChallengeListener(context);
+            try {
+                await listener.OnExternalChallenge(webAuthUrl + loginTicket);
+            }
+            finally {
+                await listener.destroy();
+            }
+            return 0;
+        }
+        catch (error) {
             global.logger.error(error);
-            return Promise.reject(0x00000001);
-        });
+            throw 0x00000001;
+        }
     }
 
-    VerifyWebCredential(context) {
-        let loginTicket = Buffer.from(context.request.webCredentials).toString();
-        let authenticationListener = new AuthenticationListener(context);
-
-        if (loginTicket.length) {
-            global.logger.debug('Verifying credentials for loginTicket: ' + loginTicket);
-
-            let loginTicketPath = '/aurora/services/' + this.getServiceName() + '/loginTickets/' + loginTicket;
-
-            global.etcd3.get(loginTicketPath + '/accountId').string().
-            then((accountId) => {
-                return models.Account.find({ include: [ { model: models.GameAccount, as: 'gameAccounts'} ], where: { id: accountId }});
-            }, () => {
-                authenticationListener.OnLogonComplete(0x0000000A); //ERROR_NO_AUTH
-            }).
-            then((account) => {
-                global.etcd3.get(loginTicketPath + '/program').string().then((program) => {
-                    let usableGameAccounts = account.gameAccounts.filter((gameAccount) => {
-                        return gameAccount.program === program;
-                    });
-
-                    if(usableGameAccounts.length >= 1) {
-                        authenticationListener.OnLogonComplete(0, account, usableGameAccounts); //ERROR_OK
-                    }
-                    else {
-                        authenticationListener.OnLogonComplete(0x0000000C); //ERROR_NO_GAME_ACCOUNT
-                    }
-                });
-            }).catch((error) => {
-                global.logger.error(error);
-                authenticationListener.OnLogonComplete(0x00000001); //ERROR_INTERNAL
-            });
-
-            return Promise.resolve(0);
+    async VerifyWebCredential(context) {
+        const loginTicket = Buffer.from(context.request.webCredentials).toString();
+        if (!loginTicket.length) {
+            throw 0x00000001;
         }
-        else {
-            return Promise.reject(0x00000001);
+        const path = '/aurora/services/' + this.getServiceName() + '/loginTickets/' + loginTicket;
+        let status = 0;
+        let account;
+        let gameAccounts;
+        try {
+            const accountId = await global.etcd3.get(path + '/accountId').string();
+            account = accountId && await models.Account.findOne({
+                include: [{ model: models.GameAccount, as: 'gameAccounts' }], where: { id: accountId }
+            });
+            if (!account) {
+                status = 0x0000000A; // ERROR_NO_AUTH
+            }
+            else {
+                const program = await global.etcd3.get(path + '/program').string();
+                gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program);
+                if (!gameAccounts.length) {
+                    status = 0x0000000C; // ERROR_NO_GAME_ACCOUNT
+                }
+            }
+        }
+        catch (error) {
+            global.logger.error(error);
+            status = 0x00000001; // ERROR_INTERNAL
+        }
+        const listener = new AuthenticationListener(context);
+        try {
+            await listener.OnLogonComplete(status, status === 0 ? account : undefined, gameAccounts);
+            return 0;
+        }
+        finally {
+            await listener.destroy();
         }
     }
 }

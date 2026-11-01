@@ -1,9 +1,10 @@
-const appRoot = require('app-root-path');
-const protobuf = require('protobufjs');
+'use strict';
 
-const Service = require(appRoot + '/services/service');
+const loadProto = require('../utils/protobuf');
 
-const accountTypes = protobuf.loadSync('proto/bgs/low/pb/client/account_types.proto');
+const Service = require('./service');
+
+const accountTypes = loadProto('proto/bgs/low/pb/client/account_types.proto');
 
 const AccountState = accountTypes.lookupType('bgs.protocol.account.v1.AccountState');
 const AccountTags = accountTypes.lookupType('bgs.protocol.account.v1.AccountFieldTags');
@@ -13,7 +14,7 @@ const GameAccountTags = accountTypes.lookupType('bgs.protocol.account.v1.GameAcc
 const GameLevelInfo = accountTypes.lookupType('bgs.protocol.account.v1.GameLevelInfo');
 const GameStatus = accountTypes.lookupType('bgs.protocol.account.v1.GameStatus');
 
-const models = require(appRoot + '/models/');
+const models = require('../models');
 
 class AccountService extends Service{
     constructor() {
@@ -30,7 +31,7 @@ class AccountService extends Service{
         context.response.state = AccountState.create();
         context.response.tags = AccountTags.create();
 
-        if (context.request.hasOwnProperty('fieldPrivacyInfo')) {
+        if (Object.hasOwn(context.request, 'fieldPrivacyInfo')) {
             context.response.state.privacyInfo = PrivacyInfo.create();
             context.response.state.privacyInfo.isUsingRid = false;
             context.response.state.privacyInfo.isReadIdVisibleForViewFriends = false;
@@ -48,9 +49,9 @@ class AccountService extends Service{
         context.response.state = GameAccountState.create();
         context.response.tags = GameAccountTags.create();
 
-        return models.GameAccount.findById(context.request.gameAccountId.low.toString()).
+        return models.GameAccount.findByPk(context.request.gameAccountId.low.toString()).
         then((gameAccount) => {
-            if(context.request.options.hasOwnProperty('fieldGameLevelInfo')) {
+            if(Object.hasOwn(context.request.options, 'fieldGameLevelInfo')) {
                 context.response.state.gameLevelInfo = GameLevelInfo.create();
                 context.response.state.gameLevelInfo.name = gameAccount.displayName;
                 context.response.state.gameLevelInfo.program = gameAccount.entityId.high.getLowBitsUnsigned();
@@ -58,7 +59,7 @@ class AccountService extends Service{
                 context.response.tags.gameLevelInfoTag = 0x5C46D483;
             }
 
-            if(context.request.options.hasOwnProperty('fieldGameStatus')) {
+            if(Object.hasOwn(context.request.options, 'fieldGameStatus')) {
                 context.response.state.gameStatus = GameStatus.create();
                 context.response.state.gameStatus.name = gameAccount.displayName;
                 context.response.state.gameStatus.program = gameAccount.entityId.high.getLowBitsUnsigned();
