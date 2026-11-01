@@ -1,0 +1,8 @@
+
+/node_modules/
+/seeders/
+/migrations/
+.idea
+/skaffold.yaml
+/.eslintrc.json
+.git

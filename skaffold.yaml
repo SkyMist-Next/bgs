@@ -1,0 +1,23 @@
+apiVersion: skaffold/v1beta12
+kind: Config
+build:
+  artifacts:
+  - image: netcho/bnetserver
+    kaniko:
+      buildContext:
+        localDir: {}
+  cluster:
+    pullSecretName: docker-hub
+    namespace: default
+deploy:
+  helm:
+    releases:
+    - name: aurora-production
+      chartPath: ../chart/
+      values:
+        image: netcho/bnetserver
+      namespace: default
+      setValues:
+        mysql.database: battlenet
+        mysql.hostname: 192.168.1.4
+        rabbitmq.rabbitmq.password: 65sdof6516
