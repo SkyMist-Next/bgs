@@ -1,6 +1,6 @@
 'use strict';
 
-// Controlled comparison only: MySQL/etcd are substitutes; bcrypt and HTTP are real.
+// Controlled comparison only: MySQL/Redis are substitutes; bcrypt and HTTP are real.
 const assert = require('node:assert/strict');
 const { fork } = require('node:child_process');
 const { once } = require('node:events');
@@ -18,9 +18,9 @@ async function serve(mode) {
     const hash = await bcrypt.hash('benchmark-password', rounds);
     const app = createRestApp({
         models: { Account: { findOne: async () => ({ id: '9007199254740993', hash }) } },
-        etcd: {
-            get: () => ({ string: async () => 'benchmark-ticket' }),
-            lease: () => ({ put: () => ({ value: () => ({ exec: async () => {} }) }) })
+        store: {
+            getLoginTicket: async () => ({ ticket: 'benchmark-ticket', program: 'WoW' }),
+            authorizeLoginTicket: async () => {}
         },
         logger: { info() {}, error() {} }, isReady: () => true,
         compare: mode === 'sync-baseline' ? (password, stored) => bcrypt.compareSync(password, stored) : bcrypt.compare

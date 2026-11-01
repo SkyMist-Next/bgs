@@ -17,24 +17,21 @@ function setup(t, { missingAccount = false, program = 'WoW', fail } = {}) {
     const messages = [];
     const writes = [];
     let closed = 0;
-    const old = { logger: global.logger, etcd3: global.etcd3, amqpConnection: global.amqpConnection };
+    const old = { logger: global.logger, store: global.store, amqpConnection: global.amqpConnection };
     t.after(() => Object.assign(global, old));
     global.logger = { debug() {}, error() {} };
-    global.etcd3 = {
-        get: path => ({ string: async () => {
-            if (fail === 'read' || fail === 'program' && path.endsWith('/program')) {
-                throw new Error('etcd rejected');
-            }
-            if (path.endsWith('/accountId')) { return missingAccount ? null : '9007199254740993'; }
-            if (path.endsWith('/program')) { return program; }
+    global.store = {
+        getMetadata: async () => {
+            if (fail === 'read') { throw new Error('Redis rejected'); }
             return 'https://example.test/login/';
-        } }),
-        lease: seconds => {
-            assert.equal(seconds, 30);
-            return { put: path => ({ value: value => ({ exec: async () => {
-                if (fail === 'write') { throw new Error('lease rejected'); }
-                writes.push({ path, value });
-            } }) }) };
+        },
+        getLoginTicket: async () => {
+            if (fail === 'read' || fail === 'program') { throw new Error('Redis rejected'); }
+            return { accountId: missingAccount ? null : '9007199254740993', program };
+        },
+        createLoginTicket: async (ticket, program) => {
+            if (fail === 'write') { throw new Error('Redis rejected'); }
+            writes.push({ ticket, program });
         }
     };
     global.amqpConnection = { createChannel: async () => {
@@ -57,18 +54,17 @@ function setup(t, { missingAccount = false, program = 'WoW', fail } = {}) {
     return { messages, writes, closed: () => closed, service: new AuthenticationService() };
 }
 
-test('Logon publishes its challenge after both ticket writes and closes its callback channel', async t => {
+test('Logon publishes its challenge after atomic ticket creation and closes its callback channel', async t => {
     const state = setup(t);
     assert.equal(await state.service.Logon({ queueName: 'client', request: { program: 'WoW', platform: 'Win' } }), 0);
-    assert.equal(state.writes.length, 2);
-    assert.equal(state.writes[1].path, state.writes[0].path + '/program');
-    assert.equal(state.writes[1].value, 'WoW');
+    assert.equal(state.writes.length, 1);
+    assert.equal(state.writes[0].program, 'WoW');
     assert.equal(state.messages.length, 1);
     assert.equal(state.messages[0][2].headers.serviceHash, 0xbbda171f);
     assert.equal(state.messages[0][2].headers.methodId, 3);
     const challengeType = loadProto('proto/bgs/low/pb/client/challenge_service.proto').lookupType('bgs.protocol.challenge.v1.ChallengeExternalRequest');
     const challenge = challengeType.decode(state.messages[0][1]);
-    assert.equal(challenge.payload.toString(), 'https://example.test/login/' + state.writes[0].value);
+    assert.equal(challenge.payload.toString(), 'https://example.test/login/' + state.writes[0].ticket);
     assert.equal(state.closed(), 1);
 });
 

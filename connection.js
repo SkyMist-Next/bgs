@@ -10,6 +10,7 @@ module.exports = class Connection {
         this.bindless = false;
         this.requestToken = 0;
         this.requests = [];
+        this.inFlight = 0;
         this.importedServices = {};
         this.exportedServices = [];
         this.clientId = undefined;
@@ -87,6 +88,7 @@ module.exports = class Connection {
                     this.writeBuffer(buffer);
                 }
                 else if (message.properties.type === 'response') {
+                    this.inFlight = Math.max(0, this.inFlight - 1);
                     this.writeBuffer(message.content);
                 }
 
@@ -145,6 +147,7 @@ module.exports = class Connection {
                         global.connectionService.onMessage(header, data.slice(2+headerSize), this);
                     }
                     else if (requestHash) {
+                        this.inFlight++;
                         this.amqpChannel.publish('battlenet_aurora_bus', requestHash.toString(), data.slice(2+headerSize),
                             {
                                 headers: Header.toObject(header),
@@ -169,7 +172,7 @@ module.exports = class Connection {
 
     disconnect() {
         if (this.amqpChannel) {
-            this.amqpChannel.close();
+            this.amqpChannel.close().catch(error => global.logger.error(error));
             this.amqpChannel = null;
         }
 

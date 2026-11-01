@@ -15,6 +15,7 @@ Entry points: `frontend.js` (client TCP connections), `rest.js` (web authenticat
 - `npm run service -- authentication`: run the authentication worker; substitute other service modules as needed.
 - `npm run lint`: lint active JavaScript with ESLint flat configuration.
 - `npm test`: run focused tests with Node's built-in runner and controlled dependencies.
+- `npm run test:redis`: run the opt-in isolated Docker Sentinel integration and storage measurements (Linux bridge networking).
 - `npm run check:runtime`: load production dependencies and exercise native addons.
 - `node scripts/benchmark-auth.js`: compare synchronous and asynchronous password checks with local HTTP and dependency substitutes.
 - `node --check services/authentication.js`: check syntax; substitute the changed file.
@@ -31,7 +32,7 @@ Design changes to support multiple instances, explicit connection-state ownershi
 
 ## Testing Guidelines
 
-Use Node's built-in test runner (`npm test`); no integration stack or coverage threshold is configured. Tests cover model associations, 64-bit identifiers, fixed protobuf fixtures and service hashes, timestamps, REST/RPC authentication, asynchronous password verification, dependency rejection, and logging. Run lint, syntax checks, and affected flows. Check `/alive`, `/ready`, and authentication for REST changes. Live worker restarts, dependency interruptions, failover, and production performance require separate integration acceptance.
+Use Node's built-in test runner (`npm test`); no integration stack or coverage threshold is configured. Tests cover model associations, 64-bit identifiers, fixed protobuf fixtures and service hashes, timestamps, REST/RPC authentication, asynchronous password verification, dependency rejection, logging, Redis configuration and storage boundaries, realm operations, readiness, and worker draining. Run lint, syntax checks, and affected flows. Check `/alive`, `/ready`, and authentication for REST changes. Live worker restarts, dependency interruptions, failover, and production performance require separate integration acceptance.
 
 ## Commit & Pull Request Guidelines
 
@@ -39,4 +40,4 @@ Use concise imperative commit subjects; historical conventions are unverified. P
 
 ## Configuration & Secrets
 
-Startup requires MySQL, RabbitMQ, etcd, `config/database.json`, and `config/winston.json`. Set `ETCD_HOST`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_SERVICE_NAME`. Development TLS uses `certs/tls.key` and `certs/tls.crt`. Keep credentials and private keys uncommitted; configuration and certificate directories are ignored.
+Startup requires MySQL, RabbitMQ, Redis with Sentinel, `config/database.json`, and `config/winston.json`. Set `REDIS_SENTINELS` (JSON host/port array), `REDIS_MASTER_NAME`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_SERVICE_NAME`. Redis/Sentinel credentials and TLS options are documented in README.md. Login tickets expire after five minutes; realm tickets retain their existing lifetime. Development TLS uses `certs/tls.key` and `certs/tls.crt`. Keep credentials and private keys uncommitted; configuration and certificate directories are ignored.

@@ -16,6 +16,8 @@ class ConnectionService extends Service {
         super('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto');
 
         this.connections = [];
+        this.pending = new Set();
+        this.stopping = false;
 
         this.registerHandler('Connect', this.Connect.bind(this));
         this.registerHandler('KeepAlive', this.KeepAlive.bind(this));
@@ -35,7 +37,7 @@ class ConnectionService extends Service {
             context.connection.setAmqpQueueName(result.queue);
             return context.connection.setupConsumer();
         }).
-        then(()=> {
+        then(async ()=> {
             if(context.request.clientId !== null) {
                 context.connection.setClientId(context.request.clientId);
                 context.response.clientId = context.request.clientId;
@@ -46,15 +48,16 @@ class ConnectionService extends Service {
             }
 
             if (context.connection.getBindlessRPC()) {
-                global.etcd3.getAll().prefix('/aurora/services/').keys().then((services) => {
-                    services.forEach((serviceKey) => {
-                        if (serviceKey.includes('hash')) {
-                            global.etcd3.get(serviceKey).number().then((serviceHash) => {
-                                context.connection.exportedServiceAdd(serviceHash);
-                            });
+                const services = await global.store.listMetadata('/aurora/services/');
+                for (const [path, value] of Object.entries(services)) {
+                    if (/^\/aurora\/services\/[^/]+\/hash$/.test(path)) {
+                        const hash = Number(value);
+                        if (!Number.isInteger(hash) || hash < 0 || hash > 0xFFFFFFFF) {
+                            throw new Error('Invalid registered service hash');
                         }
-                    });
-                });
+                        context.connection.exportedServiceAdd(hash);
+                    }
+                }
             }
 
             context.response.serverId = ProcessId.create();
@@ -101,6 +104,15 @@ class ConnectionService extends Service {
         return Promise.resolve(0);
     }
 
+    async drain() {
+        this.stopping = true;
+        this.connections.forEach(connection => connection.socket.pause());
+        while (this.pending.size || this.connections.some(connection => connection.inFlight || connection.socket.writableLength)) {
+            await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        this.closeAllConnections();
+    }
+
     closeAllConnections() {
         this.connections.forEach((connection) => {
             connection.disconnect();
@@ -110,7 +122,9 @@ class ConnectionService extends Service {
     onNewConnection(socket) {
         global.logger.debug('Received new connection from: ' + socket.remoteAddress);
 
+        if (this.stopping || !global.store.healthy) { socket.destroy(); return; }
         let connection = new Connection(socket);
+        socket.once('close', () => { this.connections = this.connections.filter(item => item !== connection); });
 
         this.connections.push(connection);
     }
@@ -123,8 +137,12 @@ class ConnectionService extends Service {
             response: null
         };
 
-        this.handleCall(context, payload).then((buffer)=> {
-            connection.writeBuffer(buffer);
+        const call = this.handleCall(context, payload).then(buffer => connection.writeBuffer(buffer));
+        this.pending.add(call);
+        call.then(() => this.pending.delete(call), error => {
+            this.pending.delete(call);
+            global.logger.error(error);
+            connection.disconnect();
         });
     }
 }

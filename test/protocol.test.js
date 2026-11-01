@@ -67,7 +67,7 @@ test('Connect returns epoch microseconds from the native addon', async t => {
     mockGlobal(t, 'amqpConnection', { value: {
         createChannel: async () => ({ assertQueue: async () => ({ queue: 'client' }) })
     } });
-    mockGlobal(t, 'etcd3', { value: { getAll: () => ({ prefix: () => ({ keys: async () => [] }) }) } });
+    mockGlobal(t, 'store', { value: { listMetadata: async () => ({}) } });
     mockGlobal(t, 'logger', { value: { error() {} } });
     const service = new ConnectionService();
     const responseType = service.rootNamespace.lookupType('bgs.protocol.connection.v1.ConnectResponse');
@@ -103,4 +103,27 @@ test('listener waits for AMQP channel creation and preserves callback IDs', asyn
     assert.equal(sent[0][2].headers.methodId, 3);
     assert.equal(sent[0][2].headers.serviceHash, 0xbbda171f);
     await listener.destroy();
+});
+
+test('Connect waits for service discovery and propagates discovery rejection', async t => {
+    mockGlobal(t, 'amqpConnection', { value: { createChannel: async () => ({ assertQueue: async () => ({ queue: 'client' }) }) } });
+    mockGlobal(t, 'logger', { value: { error() {} } });
+    let resolveDiscovery;
+    mockGlobal(t, 'store', { value: { listMetadata: () => new Promise(resolve => { resolveDiscovery = resolve; }) } });
+    const service = new ConnectionService();
+    const responseType = service.rootNamespace.lookupType('bgs.protocol.connection.v1.ConnectResponse');
+    const hashes = [];
+    const context = () => ({ request: { clientId: null, useBindlessRpc: true }, response: responseType.create(), connection: {
+        setAmqpChannel() {}, setAmqpQueueName() {}, setupConsumer: async () => {},
+        setBindlessRPC() {}, getBindlessRPC: () => true, exportedServiceAdd: hash => hashes.push(hash)
+    } });
+    let complete = false;
+    const call = service.Connect(context()).then(() => { complete = true; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(complete, false);
+    resolveDiscovery({ '/aurora/services/AuthenticationService/hash': '233634817', '/aurora/services/not-a-hash': 'ignored' });
+    await call;
+    assert.deepEqual(hashes, [233634817]);
+    global.store.listMetadata = async () => { throw new Error('Redis unavailable'); };
+    await assert.rejects(service.Connect(context()), error => error === 1);
 });

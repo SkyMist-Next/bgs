@@ -20,20 +20,17 @@ async function setup(t, { failure, missingAccount = false, missingTicket = false
         if (failure === 'mysql') { throw new Error('mysql unavailable'); }
         return missingAccount ? null : { id: '9007199254740993', hash };
     } } };
-    const etcd = {
-        get: () => ({ string: async () => {
-            if (failure === 'read') { throw new Error('etcd unavailable'); }
-            return missingTicket ? null : 'ticket-value';
-        } }),
-        lease: seconds => {
-            assert.equal(seconds, 30);
-            return { put: path => ({ value: value => ({ exec: async () => {
-                if (failure === 'write') { throw new Error('etcd write unavailable'); }
-                writes.push({ path, value });
-            } }) }) };
+    const store = {
+        getLoginTicket: async () => {
+            if (failure === 'read') { throw new Error('Redis unavailable'); }
+            return missingTicket ? null : { ticket: 'ticket-value', program: 'WoW' };
+        },
+        authorizeLoginTicket: async (ticket, value) => {
+            if (failure === 'write') { throw new Error('Redis write unavailable'); }
+            writes.push({ ticket, value });
         }
     };
-    const app = createRestApp({ models, etcd, logger: { info() {}, error: error => errors.push(error) }, isReady: () => ready, compare });
+    const app = createRestApp({ models, store, logger: { info() {}, error: error => errors.push(error) }, isReady: () => ready, compare });
     const server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     t.after(() => new Promise((resolve, reject) => {
@@ -65,7 +62,7 @@ test('legacy bcrypt hash authenticates and publishes the full account ID', async
     const response = await app.post();
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { login_ticket: 'ticket-value', authentication_state: 'DONE' });
-    assert.deepEqual(app.writes, [{ path: '/aurora/services/AuthenticationService/loginTickets/ticket/accountId', value: '9007199254740993' }]);
+    assert.deepEqual(app.writes, [{ ticket: 'ticket', value: '9007199254740993' }]);
     assert.equal(await bcrypt.compare('migration-password', hash.replace('$2a$', '$2b$')), true);
 });
 

@@ -22,12 +22,10 @@ class AuthenticationService extends Service {
     async Logon(context) {
         global.logger.debug('Logon Request for program ' + context.request.program + ' on ' + context.request.platform);
         const loginTicket = crypto.randomBytes(20).toString('hex');
-        const path = '/aurora/services/' + this.getServiceName() + '/loginTickets/' + loginTicket;
         try {
-            const lease = global.etcd3.lease(30);
-            await lease.put(path).value(loginTicket).exec();
-            await lease.put(path + '/program').value(context.request.program).exec();
-            const webAuthUrl = await global.etcd3.get('/aurora/services/' + this.getServiceName() + '/WebAuthUrl').string();
+            const webAuthUrl = await global.store.getMetadata('/aurora/services/' + this.getServiceName() + '/WebAuthUrl');
+            if (!webAuthUrl) { throw new Error('Web authentication URL is not configured'); }
+            await global.store.createLoginTicket(loginTicket, context.request.program);
             const listener = new ChallengeListener(context);
             try {
                 await listener.OnExternalChallenge(webAuthUrl + loginTicket);
@@ -48,12 +46,12 @@ class AuthenticationService extends Service {
         if (!loginTicket.length) {
             throw 0x00000001;
         }
-        const path = '/aurora/services/' + this.getServiceName() + '/loginTickets/' + loginTicket;
         let status = 0;
         let account;
         let gameAccounts;
         try {
-            const accountId = await global.etcd3.get(path + '/accountId').string();
+            const ticket = await global.store.getLoginTicket(loginTicket);
+            const accountId = ticket && ticket.accountId;
             account = accountId && await models.Account.findOne({
                 include: [{ model: models.GameAccount, as: 'gameAccounts' }], where: { id: accountId }
             });
@@ -61,7 +59,7 @@ class AuthenticationService extends Service {
                 status = 0x0000000A; // ERROR_NO_AUTH
             }
             else {
-                const program = await global.etcd3.get(path + '/program').string();
+                const program = ticket.program;
                 gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program);
                 if (!gameAccounts.length) {
                     status = 0x0000000C; // ERROR_NO_GAME_ACCOUNT

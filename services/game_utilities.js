@@ -76,7 +76,7 @@ class GameUtilitiesService extends Service {
 
             global.logger.debug('Created RealmListRequest with listTicket: ' + listTicket.toString('hex'));
 
-            return global.etcd3.put(listTicketKey).value(JSON.stringify(listTicketInfo)).then(() => {
+            return global.store.setJSON(listTicketKey, listTicketInfo).then(() => {
                 let responseParams = {
                     RealmListTicket: null
                 };
@@ -105,7 +105,7 @@ class GameUtilitiesService extends Service {
 
             global.logger.debug('Received RealmListRequest with listTicket: ' + listTicket);
 
-            return global.etcd3.getAll().prefix(realmsPrefix).json().
+            return global.store.listMetadataJSON(realmsPrefix).
             then((realms) => {
                 Object.getOwnPropertyNames(realms).forEach((virtualRealmAddressKey) => {
                     let realmEntry = {
@@ -132,7 +132,7 @@ class GameUtilitiesService extends Service {
                     realmListUpdates.push(realmEntry);
                 });
 
-                return global.etcd3.get(listTicketPath).json();
+                return global.store.getJSON(listTicketPath);
             }, () => {
                 return Promise.reject(0x8000006D) //ERROR_UTIL_SERVER_MISSING_REALM_LIST
             }).
@@ -168,15 +168,15 @@ class GameUtilitiesService extends Service {
                 JoinSecret: Variant.create()
             };
 
-            return global.etcd3.get('/aurora/services/WoWService/subRegions/' + subRegion + '/virtualRealms/' + realmAddress).json().
+            return global.store.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/virtualRealms/' + realmAddress).
             then((virtualRealm) => {
-                return global.etcd3.get('/aurora/services/WoWService/subRegions/' + subRegion + '/gameServers/' + virtualRealm.gameServerId).json()
+                return global.store.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/gameServers/' + virtualRealm.gameServerId)
             }, () => {
                 return Promise.reject(0x8000006B) //ERROR_UTIL_SERVER_MISSING_VIRTUAL_REALM
             }).
             then((gameServer) => {
                 responseParams.ServerAddresses.blobValue = deflateJSONAttributeValue('JSONRealmListServerIPAddresses', { families: gameServer.endpoints});
-                return global.etcd3.get('/aurora/services/' + this.getServiceName() + '/realmListTickets/' + listTicket).json();
+                return global.store.getJSON('/aurora/services/' + this.getServiceName() + '/realmListTickets/' + listTicket);
             }, () => {
                 return Promise.reject(0x8000012F) //ERROR_WOW_SERVICES_INVALID_SERVER_ADDRESSES
             }).
@@ -194,7 +194,7 @@ class GameUtilitiesService extends Service {
 
                 let joinTicketKey = '/aurora/services/' + this.getServiceName() + '/realmJoinTickets/' + responseParams.RealmJoinTicket.blobValue.toString('hex');
 
-                return global.etcd3.put(joinTicketKey).value(JSON.stringify(joinTicketInfo)).exec();
+                return global.store.setJSON(joinTicketKey, joinTicketInfo);
             }, () => {
                 return Promise.reject(0x8000012D) //ERROR_WOW_SERVICES_INVALID_REALM_LIST_TICKET
             }).
@@ -276,9 +276,9 @@ class GameUtilitiesService extends Service {
     GetAllValuesForAttribute(context) {
         switch (context.request.attributeKey) {
             case 'Command_RealmListRequest_v1_b9': {
-                let subRegionPrefix = '/aurora/services/WoWService/subRegions';
-                return global.etcd3.getAll().prefix(subRegionPrefix).keys().then((subRegionKeys) => {
-                    subRegionKeys.forEach((subRegionKey) => {
+                let subRegionPrefix = '/aurora/services/WoWService/subRegions/';
+                return global.store.listMetadata(subRegionPrefix).then((subRegions) => {
+                    Object.keys(subRegions).forEach((subRegionKey) => {
                         let subRegionId = subRegionKey.split('/')[5];
 
                         let subRegionIndex = context.response.attributeValue.findIndex((variant) => {

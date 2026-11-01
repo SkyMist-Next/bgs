@@ -1,49 +1,36 @@
-/**
- * Created by kaloyan on 6.7.2016 г..
- */
 'use strict';
 
 const amqplib = require('amqplib');
 const createLogger = require('./utils/logger');
 const models = require('./models');
-const { Etcd3 } = require('etcd3');
-
+const { RedisStore } = require('./utils/redis-store');
+const { lifecycle } = require('./utils/lifecycle');
 const ServiceReceiver = require('./messaging/receiver');
 
-global.amqpConnection = null;
-global.serviceReceiver = null;
 // eslint-disable-next-line n/no-missing-require -- Operator-supplied configuration.
 global.logger = createLogger(require('./config/winston.json'));
-global.etcd3 = new Etcd3({hosts: process.env.ETCD_HOST});
-
-let amqpUrl = 'amqp://' + process.env.RABBITMQ_USERNAME + ':' + process.env.RABBITMQ_PASSWORD + '@' + process.env.RABBITMQ_SERVICE_NAME;
-
-let promises = [];
-
-process.on('unhandledRejection', (error) => {
-    global.logger.error(error);
-    process.exit(1);
+const runtime = lifecycle({
+    logger: global.logger,
+    stop: async () => { await global.serviceReceiver?.closeChannel(); },
+    close: () => Promise.all([global.amqpConnection?.close(), models.sequelize.close(), global.store?.close()]),
+    force: () => { global.amqpConnection?.connection.stream.destroy(); return global.store?.destroy(); }
 });
 
-process.on('SIGINT', () => {
-    if (global.serviceReceiver) {
-        global.serviceReceiver.closeChannel().then(() => {
-            if (global.amqpConnection) {
-                global.amqpConnection.close();
-            }
-        });
-    }
-
-    global.etcd3.close();
-});
-
-promises.push(amqplib.connect(amqpUrl));
-promises.push(models.sequelize.sync());
-
-Promise.all(promises).then(([conn]) => {
-    global.amqpConnection = conn;
-    const ServiceName = process.argv[2];
-    const Service = require('./services/' + ServiceName);
+async function start() {
+    global.store = new RedisStore({ logger: global.logger, onFatal: runtime.shutdown });
+    const amqpUrl = 'amqp://' + process.env.RABBITMQ_USERNAME + ':' + process.env.RABBITMQ_PASSWORD + '@' + process.env.RABBITMQ_SERVICE_NAME;
+    await Promise.all([
+        global.store.connect(), models.sequelize.sync(),
+        amqplib.connect(amqpUrl, { timeout: 5000 }).then(async connection => {
+            if (runtime.stopping) { await connection.close(); return; }
+            global.amqpConnection = connection;
+            connection.on('error', runtime.shutdown);
+        })
+    ]);
+    if (runtime.stopping) { return; }
+    const Service = require('./services/' + process.argv[2]);
     global.serviceReceiver = new ServiceReceiver(new Service());
-});
+    await global.serviceReceiver.start();
+}
 
+start().catch(runtime.shutdown);

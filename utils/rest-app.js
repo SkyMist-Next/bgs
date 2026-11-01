@@ -4,14 +4,14 @@ const bcrypt = require('bcrypt');
 const express = require('express');
 const morgan = require('morgan');
 
-module.exports = function createRestApp({ models, etcd, logger, isReady, compare = bcrypt.compare }) {
+module.exports = function createRestApp({ models, store, logger, isReady, isAccepting = () => true, compare = bcrypt.compare }) {
     const rest = express();
     rest.use(express.json());
     rest.use(express.urlencoded({ extended: true }));
     rest.use(morgan('combined', { stream: { write: message => logger.info(message.trimEnd()) } }));
 
     rest.get('/alive', (req, res) => res.sendStatus(200));
-    rest.get('/ready', (req, res) => res.sendStatus(isReady() ? 200 : 500));
+    rest.get('/ready', async (req, res) => res.sendStatus(await isReady() ? 200 : 500));
 
     rest.get('/bnetserver/login/:loginTicket', (req, res) => {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -49,8 +49,8 @@ module.exports = function createRestApp({ models, etcd, logger, isReady, compare
             return res.sendStatus(400);
         }
 
-        const path = '/aurora/services/AuthenticationService/loginTickets/' + req.params.loginTicket;
-        const ticket = await etcd.get(path).string();
+        if (!isAccepting()) { return res.sendStatus(500); }
+        const ticket = await store.getLoginTicket(req.params.loginTicket);
         if (!ticket) {
             return res.sendStatus(500);
         }
@@ -58,9 +58,8 @@ module.exports = function createRestApp({ models, etcd, logger, isReady, compare
         if (!account || !await compare(passwords[0].value, account.hash)) {
             return res.json({ authentication_state: 'LOGIN' });
         }
-        const lease = etcd.lease(30);
-        await lease.put(path + '/accountId').value(account.id).exec();
-        return res.json({ login_ticket: ticket, authentication_state: 'DONE' });
+        await store.authorizeLoginTicket(req.params.loginTicket, account.id);
+        return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
     });
 
     // Express 5 forwards rejected async handlers here, including dependency failures.

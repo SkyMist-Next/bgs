@@ -1,71 +1,54 @@
-/**
- * Created by kaloyan on 6.7.2016 г..
- */
 'use strict';
 
-const net = require('net');
+const net = require('node:net');
+const { once } = require('node:events');
 const amqplib = require('amqplib');
 const createLogger = require('./utils/logger');
 const models = require('./models');
-const { Etcd3 } = require('etcd3');
+const { RedisStore } = require('./utils/redis-store');
+const { lifecycle } = require('./utils/lifecycle');
 const ConnectionService = require('./services/connection');
 
-global.amqpConnection = null;
-global.netServer = null;
-global.connectionService = new ConnectionService();
 // eslint-disable-next-line n/no-missing-require -- Operator-supplied configuration.
 global.logger = createLogger(require('./config/winston.json'));
-global.etcd3 = new Etcd3({hosts: process.env.ETCD_HOST});
-
-let amqpUrl = 'amqp://' + process.env.RABBITMQ_USERNAME + ':' + process.env.RABBITMQ_PASSWORD + '@' + process.env.RABBITMQ_SERVICE_NAME;
-
-let promises = [];
-
-process.on('unhandledRejection', (error) => {
-    global.logger.error(error);
-    process.exit(1);
-});
-
-process.on('SIGINT', () => {
-    global.connectionService.closeAllConnections();
-
-    if (global.netServer) {
-        global.netServer.close();
+global.connectionService = new ConnectionService();
+const runtime = lifecycle({
+    logger: global.logger,
+    stop: async () => {
+        global.netServer?.close();
+        await global.connectionService.drain();
+    },
+    close: () => Promise.all([global.amqpConnection?.close(), models.sequelize.close(), global.store?.close()]),
+    force: () => {
+        global.connectionService.closeAllConnections();
+        global.amqpConnection?.connection.stream.destroy();
+        return global.store?.destroy();
     }
 });
 
-promises.push(amqplib.connect(amqpUrl));
-promises.push(models.sequelize.sync());
-
-Promise.all(promises).then(([conn]) => {
-    global.amqpConnection = conn;
-
+async function start() {
+    global.store = new RedisStore({ logger: global.logger, onFatal: runtime.shutdown });
+    const amqpUrl = 'amqp://' + process.env.RABBITMQ_USERNAME + ':' + process.env.RABBITMQ_PASSWORD + '@' + process.env.RABBITMQ_SERVICE_NAME;
+    await Promise.all([
+        global.store.connect(), models.sequelize.sync(),
+        amqplib.connect(amqpUrl, { timeout: 5000 }).then(async connection => {
+            if (runtime.stopping) { await connection.close(); return; }
+            global.amqpConnection = connection;
+            connection.on('error', runtime.shutdown);
+        })
+    ]);
+    if (runtime.stopping) { return; }
+    const accept = socket => global.connectionService.onNewConnection(socket);
     if (process.env.NODE_ENV === 'development') {
-        const tls = require('tls');
-        const fs = require('fs');
-
-        global.netServer = tls.createServer({
-            key: fs.readFileSync('certs/tls.key'),
-            cert: fs.readFileSync('certs/tls.crt')
-        }, (socket) => {
-            global.connectionService.onNewConnection(socket);
-        });
+        const tls = require('node:tls');
+        const fs = require('node:fs');
+        global.netServer = tls.createServer({ key: fs.readFileSync('certs/tls.key'), cert: fs.readFileSync('certs/tls.crt') }, accept);
     }
-    else {
-        global.netServer = net.createServer((socket) => {
-            global.connectionService.onNewConnection(socket);
-        });
-    }
+    else { global.netServer = net.createServer(accept); }
+    global.netServer.listen(1119);
+    await once(global.netServer, 'listening');
+    global.netServer.on('error', runtime.shutdown);
+    global.logger.info('Listening on port 1119');
+}
 
-    global.netServer.listen(1119, () => {
-        global.logger.info('Listening on port 1119');
-    });
-
-    global.netServer.on('close', () => {
-        global.etcd3.close();
-
-        if (global.amqpConnection) {
-            global.amqpConnection.close();
-        }
-    });
-});
+start().catch(runtime.shutdown);

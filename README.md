@@ -20,9 +20,9 @@ npm run check:runtime
 source builds require Python 3, make, and a C++ compiler. The optional protobufjs
 postinstall script is disabled; loading and encoding are covered by tests.
 
-Startup still requires MySQL, RabbitMQ, etcd, operator-supplied
+Startup requires MySQL, RabbitMQ, Redis with Sentinel, operator-supplied
 `config/database.json` and `config/winston.json`, and the existing environment
-variables `ETCD_HOST`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and
+variables `REDIS_SENTINELS`, `REDIS_MASTER_NAME`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and
 `RABBITMQ_SERVICE_NAME`.
 
 ```sh
@@ -50,6 +50,102 @@ and rotation options such as `maxsize`, `maxFiles`, and `tailable`. JSON output
 and timestamps default to enabled; `json: false` selects text output and
 `timestamp: false` disables timestamps. Development also logs to the console at
 debug level. Error messages and stacks are normalized before transport formatting.
+
+## Redis Sentinel configuration and storage
+
+All entrypoints use the same Sentinel-backed primary. Supply configuration through
+the environment; never commit credentials or TLS material:
+
+```sh
+export REDIS_SENTINELS='[{"host":"sentinel-1","port":26379},{"host":"sentinel-2","port":26379},{"host":"sentinel-3","port":26379}]'
+export REDIS_MASTER_NAME='bgs'
+export REDIS_DB='0'
+# Supply REDIS_USERNAME / REDIS_PASSWORD and, independently,
+# REDIS_SENTINEL_USERNAME / REDIS_SENTINEL_PASSWORD through your secret manager.
+```
+
+`REDIS_SENTINELS` and `REDIS_MASTER_NAME` are required. Use routable Sentinel and
+Redis addresses, preferably DNS names for the seed nodes. `REDIS_DB` defaults to
+zero. For either prefix `REDIS` or `REDIS_SENTINEL`, `_TLS=true` enables verified
+TLS; optional `_CA_FILE`, `_CERT_FILE`, `_KEY_FILE`, and `_SERVERNAME` configure
+trust, client authentication, and the TLS server name. Certificate and key must
+be supplied together. Plain TCP is the default. TLS files remain operator mounts.
+No standalone/Cluster mode, legacy-state import, or etcd fallback is provided.
+
+Set `WEB_AUTH_URL` to the externally reachable login base URL ending in `/`.
+REST publishes it to Redis after startup dependencies succeed. Development defaults
+to `https://127.0.0.1:443/bnetserver/login/`; production can instead use a URL already
+published into metadata. All REST instances must publish the same external URL.
+Missing web-auth configuration makes RPC Logon fail without issuing a challenge.
+
+| Data | Redis representation | Lifetime |
+| --- | --- | --- |
+| Service hashes, login URL, realm/server catalog | Hash `/aurora/metadata`; fields are the old `/aurora/services/...` paths | Persistent |
+| Login ticket | Hash `/aurora/services/AuthenticationService/loginTickets/<ticket>` with `ticket`, `program`, optional `accountId` | 300 seconds from creation |
+| Realm-list / realm-join ticket | JSON string at `/aurora/services/GameUtilitiesService/realmListTickets/<hex>` or `realmJoinTickets/<hex>` | Persistent, preserving previous behavior |
+
+Login-ticket creation and expiry are atomic. Binding an account checks that the
+ticket is still live and never extends its expiry. Repeating the same binding is
+idempotent; binding a different account fails. Account IDs remain decimal strings.
+Verification can be repeated until expiry. A password check finishing after expiry
+returns the existing HTTP 500 response and cannot recreate the ticket.
+
+The external WoW publisher is not in this checkout. It must write these metadata
+fields with `HSET /aurora/metadata <field> <value>` and remove obsolete fields with
+`HDEL`, preserving the existing realm/server JSON payloads:
+
+- `/aurora/services/AuthenticationService/WebAuthUrl`: login base URL string.
+- `/aurora/services/<ServiceName>/hash`: decimal service hash; workers publish this.
+- `/aurora/services/WoWService/subRegions/<id>/virtualRealms/<address>`: realm JSON.
+- `/aurora/services/WoWService/subRegions/<id>/gameServers/<id>`: server JSON.
+
+Publish a game-server record before referencing it from a realm. Use a Redis
+transaction for related catalog updates. Discovery deduplicates and sorts `HSCAN`
+results; it is not a transactional snapshot of concurrent publisher changes.
+It scans only metadata, with a 256-entry count hint, a two-second total deadline,
+and limits of 10,000 scanned records or 8 MiB. Publishers must keep this catalog
+within those limits. An interrupted or oversized scan returns an error, never a
+partial list. Realm-ticket population does not enter the discovery scan.
+Service hashes describe capabilities; one worker stopping never deletes the shared
+registration. Expiry or ownership changes for this persistent metadata are outside
+this replacement.
+
+Each process uses one primary connection, no replica reads or local cache,
+a 1,024-operation limit, five-second connection attempts, and two-second operation
+deadlines. Offline queuing and command replay are disabled; timed-out commands are
+aborted before any later submission. A command already sent may have executed even
+if its reply was lost. Startup/recovery has a 60-second budget; socket retries use
+backoff with jitter capped at two seconds. Sentinel notifications trigger discovery,
+with a 30-second periodic refresh to avoid overlapping slow seed discovery loops.
+
+REST `/alive` remains 200. `/ready` reports 200 only after initialization and current
+primary/SQL probes succeed, otherwise 500; probes are coalesced and cached for at
+most one second. Frontend and workers await Redis, SQL initialization, and AMQP
+before accepting work. Redis outages fail requests promptly; the primary health
+monitor initiates shutdown if recovery exceeds its budget. SIGINT/SIGTERM stop new
+work and drain accepted work for up to ten seconds, then close dependencies; a
+one-second forced-cleanup budget precedes process exit. Worker replies respect AMQP
+backpressure and prefetch is bounded at 16. Existing RabbitMQ routing and broader
+frontend protocol behavior are not redesigned here.
+
+Sentinel uses asynchronous replication: recent acknowledged writes can be lost
+during failover. Missing tickets fail authentication safely and the client must
+retry login. Metadata must be republished if lost. Production Sentinel deployment,
+persistence policy, external publisher changes, and native-client acceptance remain
+operator/integration work.
+
+```sh
+npm run test:redis
+```
+
+This opt-in Linux Docker harness creates an isolated bridge network, primary,
+replica, and three Sentinels; it removes only its own resources. It uses separate
+test passwords, no published host ports, and Redis 8.8.0 pinned by image digest.
+Override `REDIS_TEST_IMAGE` to validate another server image. The host must be able
+to reach Docker bridge IPs. The harness exercises unavailable seeds, cross-client
+state, expiry during password checking, concurrent account binding, primary
+promotion, Sentinel loss, readiness, and absence of delayed write replay. It also
+prints controlled storage performance measurements. No production deployment runs.
 
 ## Production image
 
@@ -80,7 +176,7 @@ listener publication; each callback channel is closed after use. Error paths
 produce one logon callback. The shared protobuf loader resolves BGS imports from
 `proto/`, without changing schema files or wire definitions.
 
-## Validation recorded on 2026-11-02
+## Node upgrade validation recorded on 2026-11-02 (before the Redis replacement)
 
 - Clean `npm ci`, `npm ls --all`, active JavaScript syntax checks, and
   `npm run lint` passed under Node 26.13.0.
@@ -103,8 +199,9 @@ For a controlled performance comparison, run:
 node scripts/benchmark-auth.js
 ```
 
-This uses real HTTP and bcrypt in a separate server process, with MySQL and etcd
-substitutes. Both cases use Node 26 and the upgraded libraries; the baseline
+This uses real HTTP and bcrypt in a separate server process, with MySQL and Redis
+substitutes. The historical measurements below predate the Redis replacement;
+the storage boundary was also substituted in that run. Both cases use Node 26 and the upgraded libraries; the baseline
 selects synchronous verification. One local Linux x64 run used 64 successful
 logins, concurrency 8, bcrypt cost 10, and the default four libuv workers:
 
@@ -140,9 +237,59 @@ The audit suggests downgrades or changes outside supported dependency ranges;
 no forced upgrades, major transitive overrides, or Sequelize downgrade were applied.
 Deprecated transitive dottie, uuid, and glob packages remain upstream dependencies.
 
-No live MySQL/RabbitMQ/etcd stack was started, no deployment was performed, and
-no schema migration was run. Live authentication, worker restarts, dependency
-interruptions, failover, native-client acceptance, and production load remain
-separate checks. `/ready` retains the existing database-sync flag; this migration
-does not establish dependency-aware readiness, graceful draining, shared-state
-ownership, retry bounds, or broader high-availability guarantees.
+The Node upgrade did not exercise a live dependency stack. The Redis-specific
+validation below is separate from full MySQL/RabbitMQ integration, native-client
+acceptance, and production capacity acceptance.
+
+## Redis replacement validation recorded on 2026-11-02
+
+- Clean `npm ci` with Node 26.13.0/npm 11.20.0, `npm ls --all`, active JavaScript
+  syntax checks, and lint passed. The unfinished realm-list stub is unchanged.
+- All **48 tests** and `npm run check:runtime` passed in an isolated copy using the
+  repository's committed protobuf schemas. The working tree already contained
+  unrelated schema edits: the original baseline had 16 failing protocol-dependent
+  tests (`FNV.update expectes String or Buffer`, missing service descriptor options).
+  Those edits were preserved; the current tree's protocol-dependent tests and full
+  runtime check remain blocked by that schema/code mismatch. Tests do not substitute
+  schemas inside the working tree or claim native-client acceptance.
+- The production image builds with 150 installed production packages, Redis 6.3.1,
+  and no etcd dependency. Native/dependency/model/protobuf runtime validation passes
+  in that image when the committed schemas are mounted read-only; the image's own
+  working-tree schemas have the same pre-existing limitation described above.
+- The isolated Redis 8.8.0 Sentinel integration passed with one primary, one replica,
+  and three Sentinels, including separate authentication credentials, one unreachable
+  seed, concurrent account binding, expiry during password verification, primary
+  promotion, readiness recovery, Sentinel seed loss, no delayed write replay, and
+  shutdown of one client without deleting another client's data.
+- No deployment, SQL migration, live MySQL/RabbitMQ acceptance, TLS-server acceptance,
+  or native-client acceptance was performed. Dependency audit totals remain 14
+  moderate affected packages, including two production packages; no high/critical
+  findings were reported by the install/build audits.
+
+A controlled storage comparison used Node 26.13.0/Linux x64 in the same original
+application image (`sha256:d3b6afe516283b7f6aa42fca566bbbe916003d4f077888e9077ecc041faf8d09`),
+200 operations per case, concurrency eight, 100 realm records, and 25 discovery
+warmups. The old adapter ran etcd3 1.1.2 against etcd 3.5.21; the new adapter used
+Redis 6.3.1 against Redis 8.8.0 through Sentinel. Redis results used the implementation
+in this tree mounted read-only into the same container runtime. The temporary legacy
+adapter was not added as an application dependency or compatibility path.
+
+| Backend / workload | Requests/s | p95 ms | Loop p99 ms | Client CPU ms | Peak RSS MiB | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| etcd discovery, no tickets | 416.46 | 28.57 | 19.86 | 447.40 | 114.61 | 0 |
+| Redis discovery, no tickets | 1508.08 | 8.19 | 16.49 | 140.22 | 169.13 | 0 |
+| etcd discovery, 10,000 tickets | 585.94 | 20.39 | 16.22 | 277.10 | 217.54 | 0 |
+| Redis discovery, 10,000 tickets | 1774.44 | 5.09 | 13.42 | 101.27 | 174.28 | 0 |
+| etcd authentication storage | 118.98 | 92.35 | 18.73 | 1176.36 | 220.42 | 0 |
+| Redis authentication storage | 2992.81 | 4.44 | 10.75 | 54.03 | 174.40 | 0 |
+
+Authentication here measures ticket creation, retrieval, account binding, and
+verification, excluding HTTP, SQL, bcrypt, and AMQP. The old flow performs six
+storage operations plus lease management; the new flow performs four atomic/read
+operations. etcd retained its default persistence while Redis persistence was
+disabled in the test environment. These configurations have different durability
+properties, so these numbers are a functional migration comparison, not an
+equivalent-durability claim or production sizing result. RSS is the process lifetime
+peak and therefore includes fixture preparation; host scheduling affects all results.
+Use `npm run test:redis` for current storage measurements and separate full-stack
+load/failover acceptance before production use.

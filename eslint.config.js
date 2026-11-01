@@ -17,7 +17,7 @@ module.exports = [
         }
     },
     {
-        files: ['frontend.js', 'server.js', 'rest.js'],
+        files: ['frontend.js', 'server.js', 'rest.js', 'utils/lifecycle.js'],
         rules: { 'n/no-process-exit': 'off' } // Preserve fatal startup/rejection handling.
     }
 ];
