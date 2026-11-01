@@ -1,32 +1,38 @@
 # Repository Guidelines
 
+This repository is a Battle.net Game Service (BGS) implementation in Node.js. High availability and performance are core engineering requirements.
+
 ## Project Structure & Module Organization
 
-This repository implements Battle.net services in Node.js. Root entry points are `frontend.js` (client TCP connections), `rest.js` (web authentication), and `server.js` (service workers). RPC implementations live in `services/`, including WoW realm handling in `services/wow/`. Client callbacks belong in `listeners/`; RabbitMQ transport code belongs in `messaging/`. Sequelize models, schema changes, and sample data live in `models/`, `migrations/`, and `seeders/`. Protocol definitions are under `proto/`; shared helpers are in `utils/`. There is no dedicated asset or test directory.
+Entry points: `frontend.js` (client TCP connections), `rest.js` (web authentication), and `server.js` (workers). RPC implementations live in `services/`, with WoW realm handling in `services/wow/`. Use `listeners/` for client callbacks, `messaging/` for RabbitMQ transport, `models/` for Sequelize models, `migrations/` for schema changes, and `seeders/` for sample data. Protocol definitions and helpers live in `proto/` and `utils/`.
 
 ## Build, Test, and Development Commands
 
-- `npm ci`: install dependencies from `package-lock.json`.
-- `npm run frontend`: start the client connection frontend on port 1119.
-- `npm run rest`: start the authentication HTTP endpoint; development mode uses HTTPS on port 443.
-- `npm run service -- authentication`: start the worker implemented by `services/authentication.js`; substitute another service module as needed.
-- `npx --no-install eslint .`: run the configured ESLint checks after installing development dependencies.
-- `node --check services/authentication.js`: check a changed JavaScript file for syntax errors.
+- `npm ci`: install locked dependencies.
+- `npm run frontend`: start TCP frontend on port 1119.
+- `npm run rest`: start web authentication; development HTTPS uses port 443.
+- `npm run service -- authentication`: run the authentication worker; substitute other service modules as needed.
+- `npx --no-install eslint .`: lint JavaScript.
+- `node --check services/authentication.js`: check syntax; substitute the changed file.
 
-There is no compilation step or build script. The Dockerfile packages the application but uses a legacy Node 10 base; verify dependency compatibility before relying on it.
+No build script exists. Verify dependency compatibility before using the legacy Node 10 Dockerfile.
 
 ## Coding Style & Naming Conventions
 
-Use CommonJS `require` and `module.exports`, strict mode, four-space indentation, semicolons, and single-quoted JavaScript strings. Follow adjacent code for spacing and line endings. Use PascalCase for classes and camelCase for variables and helpers. Preserve protocol-defined RPC method names, such as `Logon`. Name migrations with a timestamp and descriptive kebab-case suffix, for example `20180904090839-add-billing.js`. ESLint extends the recommended JavaScript and Node rules.
+Use CommonJS, strict mode, four-space indentation, semicolons, and single quotes. Preserve surrounding line endings. Use PascalCase classes, camelCase helpers, and protocol-defined RPC names. Name migrations like `20180904090839-add-billing.js`. ESLint extends recommended JavaScript and Node rules and requires `module.exports`.
+
+## High Availability & Performance
+
+Design changes to support multiple instances, explicit connection-state ownership, and safe shared state. Use bounded timeouts and retries with backoff; prevent duplicate side effects. Provide dependency-aware readiness and graceful shutdown that drains in-flight work. Keep request handlers nonblocking; bound concurrency, queues, and buffers, and respect transport backpressure. For critical-path changes, compare latency, throughput, error rates, and resource usage under representative load. These are requirements, not claims of existing guarantees.
 
 ## Testing Guidelines
 
-No automated test framework, coverage threshold, or `npm test` script is configured. Run lint and syntax checks, then exercise affected flows against configured dependencies. For REST changes, check `/alive`, `/ready`, and the relevant authentication path. Record exact commands, results, and any untested behavior in the pull request.
+No test framework, coverage threshold, or `npm test` script is configured. Run lint, syntax checks, and affected flows. Check `/alive`, `/ready`, and authentication for REST changes. Validate worker restarts, dependency interruptions, and concurrent requests where relevant.
 
 ## Commit & Pull Request Guidelines
 
-Git history is unavailable in this checkout, so existing commit conventions cannot be verified. Use concise imperative subjects describing one focused change. Pull requests should explain the behavior change, link relevant issues, document configuration or schema changes, and include validation results.
+Use concise imperative commit subjects; historical conventions are unverified. PRs should describe behavior changes, link relevant issues, document configuration/schema changes, and provide validation commands, results, performance comparisons where relevant, and explicit gaps.
 
 ## Configuration & Secrets
 
-Local startup requires MySQL, RabbitMQ, etcd, `config/database.json`, and `config/winston.json`. Supply `ETCD_HOST`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_SERVICE_NAME`. Development TLS requires `certs/tls.key` and `certs/tls.crt`. Keep credentials and private keys out of commits; configuration and certificate directories are ignored.
+Startup requires MySQL, RabbitMQ, etcd, `config/database.json`, and `config/winston.json`. Set `ETCD_HOST`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_SERVICE_NAME`. Development TLS uses `certs/tls.key` and `certs/tls.crt`. Keep credentials and private keys uncommitted; configuration and certificate directories are ignored.
