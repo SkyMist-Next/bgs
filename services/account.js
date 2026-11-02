@@ -3,6 +3,7 @@
 const loadProto = require('../utils/protobuf');
 
 const Service = require('./service');
+const { principal, banned } = require('../utils/admin-state');
 
 const accountTypes = loadProto('proto/bgs/low/pb/client/account_types.proto');
 
@@ -16,16 +17,19 @@ const GameStatus = accountTypes.lookupType('bgs.protocol.account.v1.GameStatus')
 
 
 class AccountService extends Service{
-    constructor({ logger, models }) {
+    constructor({ logger, models, store }) {
         super('AccountService', 'proto/bgs/low/pb/client/account_service.proto', { logger });
         this.models = models;
+        this.store = store;
 
         this.registerHandler('GetAccountState', this.GetAccountStatus.bind(this));
 
         this.registerHandler('GetGameAccountState', this.GetGameAccountStatus.bind(this));
     }
 
-    GetAccountStatus(context) {
+    async GetAccountStatus(context) {
+        const owner = await principal(this.models, this.store, context);
+        if (context.request.entityId.low.toString() !== owner.accountId) { throw 0xA; }
         this.logger.debug('Received GetAccountStatus for accountId:' + context.request.entityId.low.toString());
 
         context.response.state = AccountState.create();
@@ -43,7 +47,8 @@ class AccountService extends Service{
         return Promise.resolve(0);
     }
 
-    GetGameAccountStatus(context) {
+    async GetGameAccountStatus(context) {
+        const owner = await principal(this.models, this.store, context);
         this.logger.debug('Received GetGameAccountStatus for gameAccountId:' + context.request.gameAccountId.low.toString());
 
         context.response.state = GameAccountState.create();
@@ -51,6 +56,7 @@ class AccountService extends Service{
 
         return this.models.GameAccount.findByPk(context.request.gameAccountId.low.toString()).
         then((gameAccount) => {
+            if (!gameAccount || String(gameAccount.accountId) !== owner.accountId) { throw 0xA; }
             if(Object.hasOwn(context.request.options, 'fieldGameLevelInfo')) {
                 context.response.state.gameLevelInfo = GameLevelInfo.create();
                 context.response.state.gameLevelInfo.name = gameAccount.displayName;
@@ -63,7 +69,7 @@ class AccountService extends Service{
                 context.response.state.gameStatus = GameStatus.create();
                 context.response.state.gameStatus.name = gameAccount.displayName;
                 context.response.state.gameStatus.program = gameAccount.entityId.high.getLowBitsUnsigned();
-                context.response.state.gameStatus.isBanned = gameAccount.isBanned;
+                context.response.state.gameStatus.isBanned = banned(gameAccount);
                 context.response.state.gameStatus.isSuspended = gameAccount.isSuspended;
 
                 context.response.tags.gameStatusTag = 0x98B75F99;

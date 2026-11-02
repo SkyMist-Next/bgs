@@ -4,6 +4,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const { blocked, checkIP } = require('../utils/admin-state');
 
 const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
@@ -27,7 +28,9 @@ class AuthenticationService extends Service {
         try {
             const webAuthUrl = await this.store.getMetadata('/aurora/services/' + this.getServiceName() + '/WebAuthUrl');
             if (!webAuthUrl) { throw new Error('Web authentication URL is not configured'); }
-            await this.store.createLoginTicket(loginTicket, context.request.program);
+            if (!context.identity?.connectionId) { throw new Error('Missing connection identity'); }
+            await checkIP(this.models, context.identity.address);
+            await this.store.createLoginTicket(loginTicket, context.request.program, { ...context.identity, applicationVersion: context.request.applicationVersion });
             const listener = new ChallengeListener(context, this.amqpConnection);
             try {
                 await listener.OnExternalChallenge(webAuthUrl + loginTicket);
@@ -37,8 +40,8 @@ class AuthenticationService extends Service {
             }
             return 0;
         }
-        catch (error) {
-            this.logger.error(error);
+        catch {
+            this.logger.error('Authentication dependency failed');
             throw 0x00000001;
         }
     }
@@ -51,26 +54,38 @@ class AuthenticationService extends Service {
         let status = 0;
         let account;
         let gameAccounts;
+        let applicationVersion;
         try {
             const ticket = await this.store.getLoginTicket(loginTicket);
+            await checkIP(this.models, context.identity?.address);
+            if (!ticket || !ticket.connectionId || ticket.connectionId !== context.identity?.connectionId || ticket.address !== context.identity.address) {
+                throw new Error('Login ticket belongs to another connection');
+            }
+            applicationVersion = Number(ticket?.applicationVersion) || undefined;
             const accountId = ticket && ticket.accountId;
             account = accountId && await this.models.Account.findOne({
                 include: [{ model: this.models.GameAccount, as: 'gameAccounts' }], where: { id: accountId }
             });
-            if (!account) {
+            if (blocked(account)) {
                 status = 0x0000000A; // ERROR_NO_AUTH
             }
             else {
                 const program = ticket.program;
-                gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program);
+                gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program && !blocked(gameAccount));
                 if (!gameAccounts.length) {
                     status = 0x0000000C; // ERROR_NO_GAME_ACCOUNT
                 }
             }
         }
-        catch (error) {
-            this.logger.error(error);
+        catch {
+            this.logger.error('Authentication dependency failed');
             status = 0x00000001; // ERROR_INTERNAL
+        }
+        if (status === 0) {
+            try {
+                await this.store.setConnectionIdentity(context.identity.connectionId, { accountId: String(account.id), address: context.identity.address, ...(applicationVersion ? { applicationVersion } : {}) });
+            }
+            catch { status = 1; }
         }
         const listener = new AuthenticationListener(context, this.amqpConnection);
         try {

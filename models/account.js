@@ -11,6 +11,8 @@ module.exports = (sequelize, DataTypes) => {
         email: { type: DataTypes.STRING, allowNull: false },
         hash: { type: DataTypes.STRING, allowNull: false },
         battleTag: { type: DataTypes.STRING, allowNull: false, field: 'battle_tag' },
+        banExpiresAt: { type: DataTypes.DATE, field: 'ban_expires_at' },
+        banReason: { type: DataTypes.STRING(1024), field: 'ban_reason' },
         isBanned: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'banned' },
         isSuspended: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'suspended' }
     }, {

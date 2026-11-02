@@ -28,7 +28,7 @@ class RestPlugin {
             await store.setMetadata('/aurora/services/AuthenticationService/WebAuthUrl', this.config.webAuthUrl);
         }
         signal.throwIfAborted();
-        this.app = createRestApp({ ...context, compare: this.factories.compare,
+        this.app = createRestApp({ ...context, exposeHealth: !this.config.healthPort, trustedProxyCIDRs: this.config.trustedHttpProxyCIDRs || [], compare: this.factories.compare,
             isAccepting: () => this.accepting && context.isAccepting(), track: operation => this.track(operation) });
         this.server = (this.config.tlsEnabled ?? (this.config.environment === 'development'))
             ? require('node:https').createServer(context.tlsOptions, this.app)

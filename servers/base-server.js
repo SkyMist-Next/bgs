@@ -128,13 +128,18 @@ class BaseServer {
                 : require('../models')(config.database, logger, env),
             models => models.sequelize.close(), models => factories.forceDatabase
                 ? factories.forceDatabase(models) : (models.forceClose ? models.forceClose() : models.sequelize.connectionManager?.pool?.destroyAllNow()));
-            this.dependencies.models = resource.value;
+            this.dependencies.models = Object.assign(resource.value, { realmDatabase: config.realmDatabase, ipBansEnabled: config.ipBansEnabled === true });
             const sql = resource.value.sequelize;
             await sql.authenticate();
+            if (config.service === 'game_utilities') {
+                const directory = new (require('../utils/realm-directory'))(this.dependencies.models, config.realmDatabase);
+                await directory.rows();
+                this.dependencies.realmDirectory = directory;
+            }
             this.controller.signal.throwIfAborted();
             if (config.database?.syncOnStart) { await sql.sync(); }
             this.sqlHealthy = true;
-            this.sqlProbe = dependencyProbe(() => this.track(Promise.resolve().then(() => sql.authenticate())), { timeout: config.probeTimeout, cacheTime: config.probeCacheTime });
+            this.sqlProbe = dependencyProbe(() => this.track(Promise.resolve().then(async () => { await sql.authenticate(); if (this.dependencies.realmDirectory) { await this.dependencies.realmDirectory.rows(); } })), { timeout: config.probeTimeout, cacheTime: config.probeCacheTime });
         })());
         const redis = this.track((async () => {
             const resource = await this.acquire(() => factories.store

@@ -17,6 +17,7 @@ module.exports = class Connection {
         this.channelClosures = new Set();
         this.disconnected = false;
         this.socket = socket;
+        this.identity = { connectionId: require('node:crypto').randomUUID(), address: socket.verifiedAddress || socket.remoteAddress };
         this.bindless = false;
         this.requestToken = 0;
         this.requests = [];
@@ -90,7 +91,7 @@ module.exports = class Connection {
     }
 
     getRemoteAddress() {
-        return this.socket.remoteAddress;
+        return this.identity.address;
     }
 
     setupConsumer() {
@@ -207,7 +208,7 @@ module.exports = class Connection {
                         this.inFlight++;
                         this.publish('battlenet_aurora_bus', requestHash.toString(), data.slice(2+headerSize),
                             {
-                                headers: Header.toObject(header),
+                                headers: { ...Header.toObject(header), identity: this.identity },
                                 replyTo: this.queueName,
                                 appId: this.serviceName,
                                 type: 'request'

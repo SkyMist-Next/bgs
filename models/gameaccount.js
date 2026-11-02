@@ -12,6 +12,8 @@ module.exports = (sequelize, DataTypes) => {
         region: { type: DataTypes.TINYINT, allowNull: false },
         program: { type: DataTypes.CHAR(4), allowNull: false },
         displayName: { type: DataTypes.STRING, allowNull: false, field: 'display_name' },
+        banExpiresAt: { type: DataTypes.DATE, field: 'ban_expires_at' },
+        banReason: { type: DataTypes.STRING(1024), field: 'ban_reason' },
         isBanned: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'banned' },
         isSuspended: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'suspended' },
         accountId: { type: DataTypes.BIGINT, allowNull: false, field: 'account_id' },

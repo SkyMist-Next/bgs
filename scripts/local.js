@@ -54,7 +54,7 @@ async function preflight() {
     await get('namespace', NAMESPACE);
     for (const crd of ['mariadbs.k8s.mariadb.com', 'databases.k8s.mariadb.com', 'users.k8s.mariadb.com',
         'grants.k8s.mariadb.com', 'rabbitmqclusters.rabbitmq.com', 'gateways.gateway.networking.k8s.io',
-        'tcproutes.gateway.networking.k8s.io', 'httproutes.gateway.networking.k8s.io']) {
+        'tcproutes.gateway.networking.k8s.io', 'tlsroutes.gateway.networking.k8s.io']) {
         const definition = await get('crd', crd);
         if (!condition(definition, 'Established')) { throw new Error('CRD not established: ' + crd); }
         if (crd.endsWith('gateway.networking.k8s.io') && !definition.spec.versions.some(v => v.name === 'v1' && v.served)) {
@@ -200,7 +200,7 @@ async function checkDeployment() {
             .sort((a, b) => b.metadata.creationTimestamp.localeCompare(a.metadata.creationTimestamp))[0];
         if (!job || !condition(job, 'Complete')) { throw new Error('Latest ' + role + ' Job has not completed'); }
     }
-    for (const kind of ['httproute', 'tcproute']) {
+    for (const kind of ['tlsroute', 'tcproute']) {
         const routes = await get(kind);
         const route = routes.items.find(item => item.metadata.name.startsWith(NAME + '-'));
         if (!route?.status?.parents?.some(parent => ['Accepted', 'ResolvedRefs'].every(type =>

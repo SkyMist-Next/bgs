@@ -601,3 +601,58 @@ propagation plus one polling interval; no frontend rollout is required. Verify t
 Gateway controller reconciles Secret updates. Monitor endpoint expiry independently,
 including the Gateway. Recover by republishing the previous still-valid credentials;
 CA changes require a coordinated external client trust rollout.
+
+## Standalone administration and source-IP enforcement
+
+Apply `20261102000000-administration.js` through the existing migration Job before
+rolling out these BGS changes. The preflight reports duplicate account IDs using
+the current email collation and stops before writing the migration journal. It
+never merges or deletes accounts. The additive schema includes expiring bans,
+canonical exact-address IP bans, global/Realm UID game-account privileges and the
+standalone service's request journal/audit. Rollback does not drop these tables.
+
+BGS checks account suspension/ban expiry at web login and credential verification,
+filters blocked game accounts, verifies parent ownership at realm-ticket issuance
+and use, and binds tickets to the server-generated connection UUID, account and
+verified source address. Redis connection identities expire after five minutes
+of inactivity and refresh when used. Database/IP-ban failures fail authentication
+closed. Existing permanent ban flags retain their meaning. Realm join tickets
+carry the identity and effective GM level; a future worldserver consumer must
+recheck those controls on world entry. No native join-ticket consumer is present
+in this repository.
+
+Frontend `BGS_PROXY_PROTOCOL=v2` requires nonempty `BGS_TRUSTED_PROXY_CIDRS` (JSON
+CIDR array) and TLS. It consumes a bounded PROXY v2 header before the TLS
+handshake, with a three-second header timeout and 128 pending-header limit.
+Only trusted peers may supply it; missing/malformed/LOCAL/UDP headers fail closed.
+Fragmented headers and coalesced TLS bytes are preserved. TLS credential reload
+continues through the existing `setSecureContext` path. Direct mode is available
+for isolated tests; the chart defaults to direct TLS and enables v2 only with `gateway.proxyProtocol: v2`.
+
+REST trusts forwarded addresses only through `BGS_TRUSTED_HTTP_PROXY_CIDRS`; the
+chart PROXY v2 mode requires explicit `gateway.trustedProxyCIDRs` and
+`gateway.trustedHttpProxyCIDRs`. Configure these to the actual gateway source
+peers, along with `gateway.namespaceSelector`/`gateway.podSelector`. Do not trust
+all source addresses. The chart adds an Envoy Gateway 1.9+
+[BackendTrafficPolicy proxyProtocol V2](https://gateway.envoyproxy.io/v1.9/api/extension_types/#proxyprotocol)
+targeting the frontend TCPRoute and limits application ingress to gateway Pods.
+Coordinate gateway/backend rollout: enabling only one side intentionally breaks
+new frontend connections. Live source-IP preservation remains an integration
+gate. Login URLs/tickets and credential payloads are excluded from access logs.
+
+See [standalone administration](../skymist-admin/README.md), its
+[chart](../admin-chart/README.md), and its validation record for deployment order,
+CLI examples, token rotation and explicit retirement of the previous admin.
+
+IP-ban enforcement is temporarily disabled by default. Set `BGS_IP_BANS_ENABLED=true` to enforce stored IP bans; the Helm setting is `security.ipBansEnabled`. Account and game-account bans, suspensions, ownership checks, and ticket connection binding remain enforced. Behind the default Cilium Gateway, address fields describe the observed peer, not a verified client IP. Keep IP bans disabled until trusted source forwarding is configured and verified. The chart requires `gateway.proxyProtocol: v2` and explicit gateway trust lists before enabling IP bans. IP-ban records and administration operations remain available.
+
+## Operator realm directory
+
+Realm discovery, listing, and joining read `BGS_REALM_DATABASE.realmlist`
+(default `skymist_operator`) through the existing MySQL connection. The chart
+grants the runtime user SELECT on that table only. Deploy the operator schema
+before the game-utilities worker; its readiness includes directory access.
+Redis continues to hold tickets and authenticated connection state, while realm
+metadata comes exclusively from SQL. Lists match the exact client version/build
+and game-account region. Offline or expired realms remain visible but reject
+joins. Core images must implement the operator's heartbeat/runtime contract.

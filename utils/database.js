@@ -5,7 +5,7 @@ const defineAccount = require('../models/account');
 const defineGameAccount = require('../models/gameaccount');
 
 module.exports = function createDatabase(config, logger, environment = process.env) {
-    const options = { ...config, logging: message => logger.debug(message) };
+    const options = { ...config, timezone: '+00:00', logging: message => logger.debug(message) };
     delete options.syncOnStart;
     const variable = config.use_env_variable || config.use_env_letiable;
     const sequelize = variable
@@ -13,10 +13,12 @@ module.exports = function createDatabase(config, logger, environment = process.e
         : new Sequelize(config.database, config.username, config.password, options);
     const db = {
         Account: defineAccount(sequelize, Sequelize.DataTypes),
-        GameAccount: defineGameAccount(sequelize, Sequelize.DataTypes)
+        GameAccount: defineGameAccount(sequelize, Sequelize.DataTypes),
+        IPBan: require('../models/ipban')(sequelize, Sequelize.DataTypes),
+        GameAccountPrivilege: require('../models/gameaccountprivilege')(sequelize, Sequelize.DataTypes)
     };
     for (const model of Object.values(db)) {
-        model.associate(db);
+        model.associate?.(db);
     }
     const connections = new Set();
     let forced = false;

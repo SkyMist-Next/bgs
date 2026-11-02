@@ -52,7 +52,7 @@ class Receiver {
 
     async receive(message) {
         const channel = this.amqpChannel;
-        const context = { queueName: message.properties.replyTo, header: message.properties.headers, request: null, response: null };
+        const context = { identity: message.properties.headers?.identity, queueName: message.properties.replyTo, header: message.properties.headers, request: null, response: null };
         try {
             const buffer = !this.stopping && this.isAccepting()
                 ? await this.service.handleCall(context, message.content)

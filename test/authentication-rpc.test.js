@@ -9,11 +9,11 @@ const root = loadProto('proto/bgs/low/pb/client/authentication_service.proto');
 const LogonResult = root.lookupType('bgs.protocol.authentication.v1.LogonResult');
 const EntityId = root.lookupType('bgs.protocol.EntityId');
 
-function setup({ missingAccount = false, program = 'WoW', fail } = {}) {
+function setup({ missingAccount = false, program = 'WoW', fail, banned = false, suspended = false, banExpiresAt, wrongConnection = false } = {}) {
     const messages = [];
     const writes = [];
     let closed = 0;
-    const models = { Account: {}, GameAccount: {} };
+    const models = { Account: {}, GameAccount: {}, IPBan: { findOne: async () => null } };
     const logger = { debug() {}, error() {} };
     const store = {
         getMetadata: async () => {
@@ -22,8 +22,9 @@ function setup({ missingAccount = false, program = 'WoW', fail } = {}) {
         },
         getLoginTicket: async () => {
             if (fail === 'read' || fail === 'program') { throw new Error('Redis rejected'); }
-            return { accountId: missingAccount ? null : '9007199254740993', program };
+            return { accountId: missingAccount ? null : '9007199254740993', program, connectionId: wrongConnection ? 'another-connection' : 'test-connection', address: '127.0.0.1' };
         },
+        setConnectionIdentity: async () => {},
         createLoginTicket: async (ticket, program) => {
             if (fail === 'write') { throw new Error('Redis rejected'); }
             writes.push({ ticket, program });
@@ -42,7 +43,8 @@ function setup({ missingAccount = false, program = 'WoW', fail } = {}) {
         assert.equal(query.include[0].as, 'gameAccounts');
         return {
             entityId: EntityId.fromObject({ high: '72057594037927936', low: '9007199254740993' }),
-            battleTag: 'Demo#1234',
+            isBanned: banned, isSuspended: suspended, banExpiresAt,
+            id: '9007199254740993', battleTag: 'Demo#1234',
             gameAccounts: [{ program: 'WoW', entityId: EntityId.fromObject({ high: '144115196671098711', low: '9007199254740995' }) }]
         };
     };
@@ -51,7 +53,7 @@ function setup({ missingAccount = false, program = 'WoW', fail } = {}) {
 
 test('Logon publishes its challenge after atomic ticket creation and closes its callback channel', async () => {
     const state = setup();
-    assert.equal(await state.service.Logon({ queueName: 'client', request: { program: 'WoW', platform: 'Win' } }), 0);
+    assert.equal(await state.service.Logon({ identity: { connectionId: 'test-connection', address: '127.0.0.1' }, queueName: 'client', request: { program: 'WoW', platform: 'Win' } }), 0);
     assert.equal(state.writes.length, 1);
     assert.equal(state.writes[0].program, 'WoW');
     assert.equal(state.messages.length, 1);
@@ -67,7 +69,7 @@ test('Logon propagates read, write, and channel rejection as an RPC error', asyn
     for (const fail of ['read', 'write', 'channel']) {
         await t.test(fail, async () => {
             const state = setup({ fail });
-            await assert.rejects(state.service.Logon({ queueName: 'client', request: { program: 'WoW', platform: 'Win' } }), error => error === 1);
+            await assert.rejects(state.service.Logon({ identity: { connectionId: 'test-connection', address: '127.0.0.1' }, queueName: 'client', request: { program: 'WoW', platform: 'Win' } }), error => error === 1);
             assert.equal(state.messages.length, 0);
         });
     }
@@ -78,7 +80,7 @@ test('web credentials emit exactly one callback for success, missing identity, a
         [{ fail: 'read' }, 1], [{ fail: 'program' }, 1], [{ fail: 'mysql' }, 1]]) {
         await t.test(JSON.stringify(options), async () => {
             const state = setup(options);
-            assert.equal(await state.service.VerifyWebCredential({ queueName: 'client', request: { webCredentials: Buffer.from('ticket') } }), 0);
+            assert.equal(await state.service.VerifyWebCredential({ identity: { connectionId: 'test-connection', address: '127.0.0.1' }, queueName: 'client', request: { webCredentials: Buffer.from('ticket') } }), 0);
             assert.equal(state.messages.length, 1);
             assert.equal(state.messages[0][2].headers.methodId, 5);
             const result = LogonResult.decode(state.messages[0][1]);
@@ -92,5 +94,17 @@ test('web credentials emit exactly one callback for success, missing identity, a
             }
             assert.equal(state.closed(), 1);
         });
+    }
+});
+
+
+test('credential verification rechecks bans, expiry, suspension and connection identity', async () => {
+    for (const [options, allowed] of [[{ banned: true }, false], [{ suspended: true }, false],
+        [{ banned: true, banExpiresAt: new Date('2020-01-01T00:00:00Z') }, true], [{ wrongConnection: true }, false]]) {
+        const state = setup(options);
+        await state.service.VerifyWebCredential({ identity: { connectionId: 'test-connection', address: '127.0.0.1' },
+            queueName: 'client', request: { webCredentials: Buffer.from('ticket') } });
+        const response = LogonResult.decode(state.messages[0][1]);
+        assert.equal(response.errorCode === 0, allowed);
     }
 });

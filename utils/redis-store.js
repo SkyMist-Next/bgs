@@ -9,7 +9,7 @@ const METADATA = '/aurora/metadata';
 const LOGIN_PREFIX = '/aurora/services/AuthenticationService/loginTickets/';
 const CREATE_LOGIN = `
 if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-redis.call('HSET', KEYS[1], 'ticket', ARGV[1], 'program', ARGV[2])
+redis.call('HSET', KEYS[1], 'ticket', ARGV[1], 'program', ARGV[2], 'connectionId', ARGV[3], 'address', ARGV[4], 'applicationVersion', ARGV[5])
 redis.call('EXPIRE', KEYS[1], 300)
 return 1`;
 const AUTHORIZE_LOGIN = `
@@ -235,9 +235,16 @@ class RedisStore {
         return JSON.parse(value);
     }
     setJSON(path, value) { return this.run(client => client.set(path, JSON.stringify(value))); }
-    async createLoginTicket(ticket, program) {
+    setConnectionIdentity(id, value) {
+        return this.run(client => client.set('/aurora/connections/' + id, JSON.stringify(value), { EX: 300 }));
+    }
+    async getConnectionIdentity(id) {
+        const value = await this.run(client => client.getEx('/aurora/connections/' + id, { EX: 300 }));
+        return value ? JSON.parse(value) : null;
+    }
+    async createLoginTicket(ticket, program, identity = {}) {
         const result = await this.run(client => client.eval(CREATE_LOGIN, {
-            keys: [LOGIN_PREFIX + ticket], arguments: [ticket, program]
+            keys: [LOGIN_PREFIX + ticket], arguments: [ticket, program, identity.connectionId || '', identity.address || '', String(identity.applicationVersion || '')]
         }));
         if (result !== 1) { throw new Error('Login ticket already exists'); }
     }

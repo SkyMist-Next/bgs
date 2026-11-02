@@ -109,6 +109,7 @@ async function schema(mode) {
             if (done.some(row => row.name === name)) { continue; }
             const [journal] = await sql.query('SELECT name FROM BgsMigrationJournal WHERE name = ?', { replacements: [name] });
             if (journal.length) { throw new Error('Incomplete migration requires recovery'); }
+            await require('../migrations/' + name).preflight?.(sql.getQueryInterface());
             await sql.query('INSERT INTO BgsMigrationJournal (name) VALUES (?)', { replacements: [name] });
             await require('../migrations/' + name).up(sql.getQueryInterface(), Sequelize);
             await sql.transaction(async transaction => {
@@ -127,7 +128,10 @@ async function main() {
         if (mode === 'bootstrap') { await bootstrap(); }
         else if (['migrate', 'wait'].includes(mode)) { await schema(mode); }
         else { throw new Error('Unknown deployment command'); }
-    } catch { console.error('Deployment command failed; inspect resource readiness and migration journal.'); process.exitCode = 1; }
+    } catch (error) {
+        console.error(error.code === 'BGS_EMAIL_CONFLICT' ? error.message : 'Deployment command failed; inspect resource readiness and migration journal.');
+        process.exitCode = 1;
+    }
 }
 if (require.main === module) { void main(); }
 module.exports = { bootstrap, schema };

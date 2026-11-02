@@ -2,21 +2,45 @@
 
 const bcrypt = require('bcrypt');
 const express = require('express');
-const morgan = require('morgan');
+const { blocked, checkIP, canonicalIP } = require('./admin-state');
 
-module.exports = function createRestApp({ models, store, logger, isReady, isAccepting = () => true, compare = bcrypt.compare, track = operation => operation() }) {
+module.exports = function createRestApp({ models, store, logger, isReady, isAccepting = () => true, compare = bcrypt.compare, track = operation => operation(), trustedProxyCIDRs = [], exposeHealth = true }) {
     const rest = express();
+    rest.use((req, res, next) => {
+        const started = process.hrtime.bigint();
+        let logged = false;
+        const logRequest = () => {
+            if (logged) { return; }
+            logged = true;
+            // Only log route templates: raw paths and query strings can contain tickets.
+            logger.info('REST request', {
+                method: req.method,
+                route: req.route?.path || 'unmatched',
+                address: req.ip,
+                status: res.statusCode,
+                durationMs: Number(process.hrtime.bigint() - started) / 1e6,
+                aborted: !res.writableFinished
+            });
+        };
+        res.once('finish', logRequest);
+        res.once('close', logRequest);
+        next();
+    });
     rest.use(express.json());
     rest.use(express.urlencoded({ extended: true }));
-    rest.use(morgan('combined', { stream: { write: message => logger.info(message.trimEnd()) } }));
+    rest.set('trust proxy', trustedProxyCIDRs);
+    // Do not log login-ticket URLs, bodies, credentials, or SQL error objects.
+    rest.use((req, res, next) => { req.verifiedAddress = canonicalIP(req.ip); next(); });
 
-    rest.get('/alive', (req, res) => res.sendStatus(200));
-    rest.get('/ready', async (req, res) => res.sendStatus(await isReady() ? 200 : 500));
+    if (exposeHealth) {
+        rest.get('/alive', (req, res) => res.sendStatus(200));
+        rest.get('/ready', async (req, res) => res.sendStatus(await isReady() ? 200 : 500));
+    }
 
     rest.get('/bnetserver/login/:loginTicket', (req, res) => {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.json({
-            'type': 1,
+            'type': 'LOGIN_FORM',
             'inputs': [{
                 'input_id': 'account_name',
                 'type': 'text',
@@ -45,17 +69,18 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
         const passwords = inputs.filter(input => input.input_id === 'password');
         if (names.length !== 1 || passwords.length !== 1 ||
             typeof names[0].value !== 'string' || typeof passwords[0].value !== 'string' ||
-            !names[0].value || !passwords[0].value) {
+            !names[0].value || !passwords[0].value || Buffer.byteLength(passwords[0].value) > 72) {
             return res.sendStatus(400);
         }
 
         if (!isAccepting()) { return res.sendStatus(500); }
+        await checkIP(models, req.verifiedAddress);
         const ticket = await store.getLoginTicket(req.params.loginTicket);
         if (!ticket) {
             return res.sendStatus(500);
         }
         const account = await models.Account.findOne({ where: { email: names[0].value } });
-        if (!account || !await compare(passwords[0].value, account.hash)) {
+        if (blocked(account) || !await compare(passwords[0].value, account.hash)) {
             return res.json({ authentication_state: 'LOGIN' });
         }
         await store.authorizeLoginTicket(req.params.loginTicket, account.id);
@@ -77,7 +102,7 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
         if (error.type === 'charset.unsupported' || error.type === 'encoding.unsupported') {
             return res.sendStatus(415);
         }
-        logger.error(error);
+        logger.error('Web authentication dependency failed');
         return res.sendStatus(500);
     });
     return rest;

@@ -52,19 +52,22 @@ function group(id) {
         healthy: true,
         setMetadata: async (...args) => registrations.push(args),
         getMetadata: async () => `https://${id}.test/login/`,
+        setConnectionIdentity: async () => {},
+        getConnectionIdentity: async () => ({ accountId: id, address: '127.0.0.1' }),
         createLoginTicket: async (...args) => tickets.push(args),
-        getLoginTicket: async ticket => { assert.equal(ticket, id); return { accountId: id, program: 'WoW' }; },
+        getLoginTicket: async ticket => { assert.equal(ticket, id); return { accountId: id, program: 'WoW', connectionId: id, address: '127.0.0.1' }; },
         listMetadata: async () => ({})
     };
     const entity = { high: 0, low: id };
     const models = {
-        Account: { findOne: async query => {
+        IPBan: { findOne: async () => null },
+        Account: { findByPk: async () => ({ id }), findOne: async query => {
             assert.equal(query.where.id, id);
             assert.equal(query.include[0].model, models.GameAccount);
             queries.push(query.where.id);
-            return { entityId: entity, battleTag: id, gameAccounts: [{ program: 'WoW', entityId: entity }] };
+            return { id, entityId: entity, battleTag: id, gameAccounts: [{ program: 'WoW', entityId: entity }] };
         } },
-        GameAccount: { findByPk: async key => { queries.push(key); return { displayName: id }; } }
+        GameAccount: { findByPk: async key => { queries.push(key); return { displayName: id, accountId: id }; } }
     };
     const amqpConnection = { createChannel: async () => {
         const channel = Object.assign(new EventEmitter(), {
@@ -94,6 +97,7 @@ test('two authentication workers isolate stores, models, callbacks, logs, and dr
         const method = state.service.methods.find(item => item.name === methodName);
         const type = state.service.rootNamespace.lookupType(method.requestType);
         state.channels[0].deliver({ properties: { replyTo: state.id, headers: {
+            identity: { connectionId: state.id, address: '127.0.0.1' },
             methodId: method.getOption('(bgs.protocol.method_options).id'), token: 1
         } }, content: type.encode(type.fromObject(request)).finish() });
         await Promise.all([...state.receiver.pending]);
@@ -121,7 +125,7 @@ test('two authentication workers isolate stores, models, callbacks, logs, and dr
     const fault = new Error('first store rejected');
     first.store.getMetadata = async () => { throw fault; };
     await deliver(first, 'Logon', { program: 'WoW' });
-    assert.ok(first.logs.some(([, value]) => value === fault));
+    assert.ok(first.logs.some(([, value]) => value === 'Authentication dependency failed'));
     assert.ok(!second.logs.some(([level]) => level === 'error'));
     const otherLogs = second.logs.length;
     await first.receiver.closeChannel();
@@ -137,6 +141,7 @@ test('account services use only their own model and logger', async () => {
     const groups = [group('101'), group('202')];
     const services = groups.map(state => new AccountService(state));
     await Promise.all(services.map((service, index) => service.GetGameAccountStatus({
+        identity: { connectionId: groups[index].id, address: '127.0.0.1' },
         request: { gameAccountId: { low: groups[index].id }, options: {} }, response: {}
     })));
     for (const state of groups) {

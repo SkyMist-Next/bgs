@@ -14,8 +14,9 @@ const inputs = [
 async function setup(t, { failure, missingAccount = false, missingTicket = false, compare } = {}) {
     const writes = [];
     const errors = [];
+    const requests = [];
     let ready = false;
-    const models = { Account: { findOne: async query => {
+    const models = { IPBan: { findOne: async () => null }, Account: { findOne: async query => {
         assert.equal(query.where.email, 'demo@example.test');
         if (failure === 'mysql') { throw new Error('mysql unavailable'); }
         return missingAccount ? null : { id: '9007199254740993', hash };
@@ -30,7 +31,7 @@ async function setup(t, { failure, missingAccount = false, missingTicket = false
             writes.push({ ticket, value });
         }
     };
-    const app = createRestApp({ models, store, logger: { info() {}, error: error => errors.push(error) }, isReady: () => ready, compare });
+    const app = createRestApp({ models, store, logger: { info: (message, fields) => requests.push({ message, ...fields }), error: error => errors.push(error) }, isReady: () => ready, compare });
     const server = app.listen(0, '127.0.0.1');
     await once(server, 'listening');
     t.after(() => new Promise((resolve, reject) => {
@@ -39,7 +40,7 @@ async function setup(t, { failure, missingAccount = false, missingTicket = false
     }));
     const url = `http://127.0.0.1:${server.address().port}`;
     return {
-        url, writes, errors, setReady: value => { ready = value; },
+        url, writes, errors, requests, setReady: value => { ready = value; },
         post: (body = { inputs }, type = 'application/json') => fetch(url + '/bnetserver/login/ticket', {
             method: 'POST', headers: { 'content-type': type }, body: typeof body === 'string' ? body : JSON.stringify(body)
         })
@@ -53,8 +54,28 @@ test('alive, ready, and login form retain their response contracts', async t => 
     app.setReady(true);
     assert.equal((await fetch(app.url + '/ready')).status, 200);
     const form = await (await fetch(app.url + '/bnetserver/login/ticket')).json();
-    assert.equal(form.type, 1);
+    assert.equal(form.type, 'LOGIN_FORM');
     assert.deepEqual(form.inputs.map(input => input.input_id), ['account_name', 'password', 'log_in_submit']);
+});
+
+test('request logs redact tickets, queries and bodies including parser failures and unknown routes', async t => {
+    const app = await setup(t);
+    await fetch(app.url + '/bnetserver/login/secret-ticket?password=secret-query');
+    await app.post();
+    await app.post('{"password":"secret-body",');
+    await fetch(app.url + '/secret-path?token=secret-query');
+    assert.equal(app.requests.length, 4);
+    assert.deepEqual(app.requests.map(row => row.status), [200, 200, 400, 404]);
+    assert.deepEqual(app.requests.map(row => row.route), [
+        '/bnetserver/login/:loginTicket', '/bnetserver/login/:loginTicket', 'unmatched', 'unmatched'
+    ]);
+    for (const row of app.requests) {
+        assert.equal(row.message, 'REST request');
+        assert.equal(row.address, '127.0.0.1');
+        assert.equal(row.aborted, false);
+        assert.ok(row.durationMs >= 0);
+    }
+    assert.doesNotMatch(JSON.stringify(app.requests), /secret-|demo@example|migration-password/);
 });
 
 test('legacy bcrypt hash authenticates and publishes the full account ID', async t => {
@@ -136,4 +157,28 @@ test('optional submit inputs without a value remain compatible with the login fo
     const response = await app.post({ inputs: [...inputs, { input_id: 'log_in_submit' }] });
     assert.equal(response.status, 200);
     assert.equal((await response.json()).authentication_state, 'DONE');
+});
+
+test('HTTPS wire headers retain Legion Content-Type casing and health can be internal-only', async t => {
+    const https = require('node:https');
+    const fs = require('node:fs');
+    const dir = fs.mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'bgs-https-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    require('node:child_process').execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost', '-keyout', dir + '/key', '-out', dir + '/cert'], { stdio: 'ignore' });
+    const cert = fs.readFileSync(dir + '/cert');
+    const app = createRestApp({ models: {}, store: {}, logger: { info() {}, error() {} },
+        isReady: () => true, exposeHealth: false });
+    const server = https.createServer({ cert, key: fs.readFileSync(dir + '/key') }, app).listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
+    const request = route => new Promise((resolve, reject) => {
+        https.get({ host: '127.0.0.1', servername: 'localhost', ca: cert, port: server.address().port, path: route }, res => {
+            res.resume(); res.on('end', () => resolve(res));
+        }).on('error', reject);
+    });
+    const response = await request('/bnetserver/login/test');
+    assert.equal(response.rawHeaders[response.rawHeaders.indexOf('Content-Type') + 1], 'application/json; charset=utf-8');
+    for (const route of ['alive', 'ready']) {
+        assert.equal((await request('/' + route)).statusCode, 404);
+    }
 });

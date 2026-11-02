@@ -5,6 +5,7 @@ const zlib = require('zlib');
 const loadProto = require('../utils/protobuf');
 
 const Service = require('./service.js');
+const { principal, gameAccount, privilege, blocked } = require('../utils/admin-state');
 
 const gameUtilitiesTypes = loadProto('proto/bgs/low/pb/client/game_utilities_types.proto');
 
@@ -38,9 +39,9 @@ function realmAddressToString(address) {
 
 function stringToRealmAddress(string) {
     let parts = string.split('-');
-    return  ((Number.parseInt(parts[0], 10) & 0xFF) << 24) |
+    return (((Number.parseInt(parts[0], 10) & 0xFF) << 24) |
             ((Number.parseInt(parts[1], 10) & 0xFF) << 16) |
-            (Number.parseInt(parts[2], 10) & 0xFF);
+            (Number.parseInt(parts[2], 10) & 0xFFFF)) >>> 0;
 }
 
 function bufferToArray(buffer) {
@@ -53,9 +54,11 @@ function bufferToArray(buffer) {
 }
 
 class GameUtilitiesService extends Service {
-    constructor({ logger, store }) {
+    constructor({ logger, store, models, realmDirectory }) {
         super('GameUtilitiesService', 'proto/bgs/low/pb/client/game_utilities_service.proto', { logger });
         this.store = store;
+        this.models = models;
+        this.realms = realmDirectory || new (require('../utils/realm-directory'))(models, models.realmDatabase);
 
         this.commandHandlers = {};
 
@@ -63,19 +66,25 @@ class GameUtilitiesService extends Service {
 
         this.registerHandler('GetAllValuesForAttribute', this.GetAllValuesForAttribute.bind(this));
 
-        this.registerCommand('RealmListTicketRequest', (params) => {
+        this.registerCommand('RealmListTicketRequest', async (params, commandValue, context) => {
+            const owner = await principal(this.models, this.store, context);
             let identity = GetJSON(params.Identity, 'JSONRealmListTicketIdentity');
+            const game = await gameAccount(this.models, owner, identity.gameAccountID);
+            identity = { gameAccountId: String(game.id), gameAccountRegion: game.region };
+            if (game.program !== 'WoW') { throw 0xA; }
             let clientInfo = GetJSON(params.ClientInfo, 'JSONRealmListTicketClientInformation');
+            if (!Number.isInteger(clientInfo.info?.version?.versionBuild) || clientInfo.info.version.versionBuild <= 0 || (owner.applicationVersion && owner.applicationVersion !== clientInfo.info.version.versionBuild)) { throw 0xA; }
 
             let listTicket = crypto.randomBytes(20);
             let listTicketKey = '/aurora/services/' + this.getServiceName() + '/realmListTickets/' + listTicket.toString('hex');
 
             let listTicketInfo = {
                 info: clientInfo.info,
-                identity: identity
+                identity: identity,
+                owner
             };
 
-            this.logger.debug('Created RealmListRequest with listTicket: ' + listTicket.toString('hex'));
+            this.logger.debug('Created RealmListRequest');
 
             return this.store.setJSON(listTicketKey, listTicketInfo).then(() => {
                 let responseParams = {
@@ -91,7 +100,7 @@ class GameUtilitiesService extends Service {
             });
         });
 
-        this.registerCommand('RealmListRequest', (params, commandValue) => {
+        this.registerCommand('RealmListRequest', (params, commandValue, context) => {
             let listTicket = params.RealmListTicket.blobValue.toString('hex');
             let listTicketPath = '/aurora/services/' + this.getServiceName() + '/realmListTickets/' + listTicket;
             let subRegion = commandValue.stringValue;
@@ -104,9 +113,9 @@ class GameUtilitiesService extends Service {
                 CharacterCountList: Variant.create()
             };
 
-            this.logger.debug('Received RealmListRequest with listTicket: ' + listTicket);
+            this.logger.debug('Received RealmListRequest');
 
-            return this.store.listMetadataJSON(realmsPrefix).
+            return this.realms.listMetadataJSON(realmsPrefix).
             then((realms) => {
                 Object.getOwnPropertyNames(realms).forEach((virtualRealmAddressKey) => {
                     let realmEntry = {
@@ -119,7 +128,7 @@ class GameUtilitiesService extends Service {
                     Object.assign(realmEntry.update, realms[virtualRealmAddressKey].update);
                     realmEntry.update.wowRealmAddress = stringToRealmAddress(virtualRealmAddress);
                     //TODO calculate the population state by counting all characters, possibly use DB for realm
-                    realmEntry.update.populationState = 1;
+                    realmEntry.update.populationState = realms[virtualRealmAddressKey].update.populationState;
                     realmEntry.update.flags = 0;
 
                     if (realms[virtualRealmAddressKey].isHidden)
@@ -137,7 +146,10 @@ class GameUtilitiesService extends Service {
             }, () => {
                 return Promise.reject(0x8000006D) //ERROR_UTIL_SERVER_MISSING_REALM_LIST
             }).
-            then((listTicketInfo) => {
+            then(async (listTicketInfo) => {
+                await this.validateTicket(listTicketInfo, context);
+                realmListUpdates = realmListUpdates.filter(entry => ['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => entry.update.version[key] === listTicketInfo.info.version[key]) &&
+                    Number(subRegion.split('-')[0]) === listTicketInfo.identity.gameAccountRegion);
                 realmListUpdates.forEach((realmEntry) => {
                     if (realmEntry.update.version.versionMajor !== listTicketInfo.info.version.versionMajor ||
                         realmEntry.update.version.versionMinor !== listTicketInfo.info.version.versionMinor ||
@@ -156,8 +168,10 @@ class GameUtilitiesService extends Service {
             })
         });
 
-        this.registerCommand('RealmJoinRequest', (params, commandValue) => {
+        this.registerCommand('RealmJoinRequest', (params, commandValue, context) => {
             let subRegion = commandValue.stringValue;
+            let realmUid;
+            let selectedRealm;
             let listTicket = params.RealmListTicket.blobValue.toString('hex');
             let realmAddress = realmAddressToString(params.RealmAddress.uintValue.getLowBitsUnsigned());
 
@@ -169,9 +183,11 @@ class GameUtilitiesService extends Service {
                 JoinSecret: Variant.create()
             };
 
-            return this.store.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/virtualRealms/' + realmAddress).
+            return this.realms.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/virtualRealms/' + realmAddress).
             then((virtualRealm) => {
-                return this.store.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/gameServers/' + virtualRealm.gameServerId)
+                realmUid = virtualRealm.realmUID;
+                selectedRealm = virtualRealm;
+                return this.realms.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/gameServers/' + virtualRealm.gameServerId)
             }, () => {
                 return Promise.reject(0x8000006B) //ERROR_UTIL_SERVER_MISSING_VIRTUAL_REALM
             }).
@@ -181,11 +197,20 @@ class GameUtilitiesService extends Service {
             }, () => {
                 return Promise.reject(0x8000012F) //ERROR_WOW_SERVICES_INVALID_SERVER_ADDRESSES
             }).
-            then((listTicketInfo) => {
+            then(async (listTicketInfo) => {
+                await this.validateTicket(listTicketInfo, context);
+                const game = await gameAccount(this.models, listTicketInfo.owner, listTicketInfo.identity.gameAccountId);
+                selectedRealm = await this.realms.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/virtualRealms/' + realmAddress);
+                responseParams.ServerAddresses.blobValue = deflateJSONAttributeValue('JSONRealmListServerIPAddresses', { families: selectedRealm.endpoints });
+                if (!selectedRealm.available || selectedRealm.region !== game.region || selectedRealm.build !== listTicketInfo.info.version.versionBuild || !(['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => selectedRealm.update.version[key] === listTicketInfo.info.version[key])) ||
+                    await privilege(this.models, game.id, realmUid) < selectedRealm.securityLevel) { throw 0xA; }
                 responseParams.RealmJoinTicket.blobValue = crypto.randomBytes(20);
                 responseParams.JoinSecret.blobValue = crypto.randomBytes(32);
 
                 let joinTicketInfo = {
+                    owner: listTicketInfo.owner,
+                    realmUID: realmUid || null,
+                    gmLevel: await privilege(this.models, listTicketInfo.identity.gameAccountId, realmUid),
                     subRegion: subRegion,
                     realmAddress: realmAddress,
                     gameAccount: listTicketInfo.identity,
@@ -207,13 +232,20 @@ class GameUtilitiesService extends Service {
         })
     }
 
+    async validateTicket(ticket, context) {
+        const owner = await principal(this.models, this.store, context);
+        if (!ticket?.owner || ticket.owner.connectionId !== owner.connectionId || ticket.owner.accountId !== owner.accountId || ticket.owner.address !== owner.address) { throw 0xA; }
+        const game = await gameAccount(this.models, owner, ticket.identity.gameAccountId);
+        if (game.region !== ticket.identity.gameAccountRegion || (owner.applicationVersion && owner.applicationVersion !== ticket.info.version.versionBuild)) { throw 0xA; }
+    }
+
     registerCommand(command, handler) {
         this.commandHandlers[command] = handler;
     }
 
-    handleCommand(command, params) {
+    handleCommand(command, params, context) {
         if (Object.hasOwn(this.commandHandlers, command.name)) {
-            return this.commandHandlers[command.name](params, command.value).then((responseParams) => {
+            return this.commandHandlers[command.name](params, command.value, context).then((responseParams) => {
                 let attributes = [];
                 Object.getOwnPropertyNames(responseParams).forEach((responseParamName) => {
                     let attribute = Attribute.create();
@@ -268,18 +300,23 @@ class GameUtilitiesService extends Service {
             }
         }
 
-        return this.handleCommand(command, params).then((attributes) => {
+        return this.handleCommand(command, params, context).then((attributes) => {
             context.response.attribute = attributes;
             return Promise.resolve(0);
         });
     }
 
-    GetAllValuesForAttribute(context) {
+    async GetAllValuesForAttribute(context) {
         switch (context.request.attributeKey) {
             case 'Command_RealmListRequest_v1_b9': {
+                const owner = await principal(this.models, this.store, context);
+                const accounts = await this.models.GameAccount.findAll({ where: { accountId: owner.accountId, program: 'WoW' } });
+                const regions = new Set(accounts.filter(a => !blocked(a)).map(a => a.region));
                 let subRegionPrefix = '/aurora/services/WoWService/subRegions/';
-                return this.store.listMetadata(subRegionPrefix).then((subRegions) => {
+                return this.realms.listMetadata(subRegionPrefix).then((subRegions) => {
                     Object.keys(subRegions).forEach((subRegionKey) => {
+                        const realm = subRegions[subRegionKey];
+                        if (!regions.has(realm.region) || realm.build !== owner.applicationVersion) { return; }
                         let subRegionId = subRegionKey.split('/')[5];
 
                         let subRegionIndex = context.response.attributeValue.findIndex((variant) => {

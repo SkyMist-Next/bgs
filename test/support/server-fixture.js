@@ -18,7 +18,7 @@ function fixture(config = {}) {
         setMetadata: async () => events.push('metadata'), listMetadata: async () => ({}),
         getLoginTicket: async () => ({ ticket: 'ticket', program: 'WoW' }),
         authorizeLoginTicket: async () => events.push('authorize') };
-    const models = { sequelize: {
+    const models = { IPBan: { findOne: async () => null }, sequelize: {
         authenticate: async () => events.push('sql.authenticate'), sync: async () => events.push('sql.sync'),
         close: async () => events.push('sql.close')
     }, Account: { findOne: async () => ({ id: '9007199254740993', hash: 'controlled' }) } };
