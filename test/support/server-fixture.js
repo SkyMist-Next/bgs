@@ -16,7 +16,7 @@ function fixture(config = {}) {
         connect: async () => events.push('redis.connect'), ping: async () => {},
         close: async () => events.push('redis.close'), destroy: async () => events.push('redis.destroy'),
         setMetadata: async () => events.push('metadata'), listMetadata: async () => ({}),
-        getLoginTicket: async () => ({ ticket: 'ticket', program: 'WoW' }),
+        getLoginTicket: async () => ({ ticket: 'ticket', program: 'WoW', address: '192.0.2.1' }),
         authorizeLoginTicket: async () => events.push('authorize') };
     const models = { IPBan: { findOne: async () => null }, sequelize: {
         authenticate: async () => events.push('sql.authenticate'), sync: async () => events.push('sql.sync'),

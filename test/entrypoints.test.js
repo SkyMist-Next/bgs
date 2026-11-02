@@ -411,3 +411,14 @@ test('TCP drain retains broker backpressure on client responses', async t => {
     assert.equal((await stopping).forced, false);
     assert.ok(state.events.indexOf('channel.close') < state.events.indexOf('amqp.close'));
 });
+
+
+test('server IP bans default on and accept an explicit disable override', async t => {
+    for (const [config, enabled] of [[{}, true], [{ ipBansEnabled: false }, false], [{ ipBansEnabled: true }, true]]) {
+        const state = fixture(config);
+        const server = rest.createServer(state.options);
+        t.after(() => server.stop());
+        await server.start();
+        assert.equal(server.dependencies.models.ipBansEnabled, enabled);
+    }
+});

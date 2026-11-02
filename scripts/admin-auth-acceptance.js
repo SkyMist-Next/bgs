@@ -10,7 +10,7 @@ async function main() {
     const models = createDatabase({ ...config, username: config.user, dialect: 'mysql', logging: false }, logger);
     let server;
     try {
-        const store = { getLoginTicket: async () => ({ ticket: 'fixture', program: 'WoW' }), authorizeLoginTicket: async () => {} };
+        const store = { getLoginTicket: async () => ({ ticket: 'fixture', program: 'WoW', address: '192.0.2.1' }), authorizeLoginTicket: async () => {} };
         server = createRestApp({ models, store, logger, isReady: () => true }).listen(0, '127.0.0.1');
         await once(server, 'listening');
         const login = async () => (await fetch(`http://127.0.0.1:${server.address().port}/bnetserver/login/fixture`, {

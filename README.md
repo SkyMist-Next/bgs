@@ -629,22 +629,24 @@ Fragmented headers and coalesced TLS bytes are preserved. TLS credential reload
 continues through the existing `setSecureContext` path. Direct mode is available
 for isolated tests; the chart defaults to direct TLS and enables v2 only with `gateway.proxyProtocol: v2`.
 
-REST trusts forwarded addresses only through `BGS_TRUSTED_HTTP_PROXY_CIDRS`; the
-chart PROXY v2 mode requires explicit `gateway.trustedProxyCIDRs` and
-`gateway.trustedHttpProxyCIDRs`. Configure these to the actual gateway source
-peers, along with `gateway.namespaceSelector`/`gateway.podSelector`. Do not trust
-all source addresses. The chart adds an Envoy Gateway 1.9+
-[BackendTrafficPolicy proxyProtocol V2](https://gateway.envoyproxy.io/v1.9/api/extension_types/#proxyprotocol)
-targeting the frontend TCPRoute and limits application ingress to gateway Pods.
-Coordinate gateway/backend rollout: enabling only one side intentionally breaks
-new frontend connections. Live source-IP preservation remains an integration
-gate. Login URLs/tickets and credential payloads are excluded from access logs.
+REST enforces IP bans against the frontend address stored in the login ticket,
+not its HTTPS peer or forwarding headers. Missing or invalid ticket addresses
+fail authentication closed when enforcement is enabled. The chart keeps HTTP
+proxy trust disabled. Optional PROXY v2 mode requires only frontend trusted-peer
+CIDRs and its existing Envoy Gateway resources and ingress restrictions.
+Login URLs/tickets and credential payloads are excluded from access logs.
 
 See [standalone administration](../skymist-admin/README.md), its
 [chart](../admin-chart/README.md), and its validation record for deployment order,
 CLI examples, token rotation and explicit retirement of the previous admin.
 
-IP-ban enforcement is temporarily disabled by default. Set `BGS_IP_BANS_ENABLED=true` to enforce stored IP bans; the Helm setting is `security.ipBansEnabled`. Account and game-account bans, suspensions, ownership checks, and ticket connection binding remain enforced. Behind the default Cilium Gateway, address fields describe the observed peer, not a verified client IP. Keep IP bans disabled until trusted source forwarding is configured and verified. The chart requires `gateway.proxyProtocol: v2` and explicit gateway trust lists before enabling IP bans. IP-ban records and administration operations remain available.
+IP-ban enforcement is enabled by default in standalone processes and Helm deployments.
+Set `BGS_IP_BANS_ENABLED=false` or Helm `security.ipBansEnabled=false` to disable it
+without deleting stored bans. Direct frontend mode requires source preservation,
+verified for the target deployment; IPv4-mapped IPv6 addresses normalize to IPv4.
+Frontend admission, web login, credential verification and protected RPCs recheck
+bans. Deploy the application changes before enabling bans in an existing release
+whose REST implementation still checks its HTTPS peer.
 
 ## Operator realm directory
 

@@ -128,7 +128,7 @@ class BaseServer {
                 : require('../models')(config.database, logger, env),
             models => models.sequelize.close(), models => factories.forceDatabase
                 ? factories.forceDatabase(models) : (models.forceClose ? models.forceClose() : models.sequelize.connectionManager?.pool?.destroyAllNow()));
-            this.dependencies.models = Object.assign(resource.value, { realmDatabase: config.realmDatabase, ipBansEnabled: config.ipBansEnabled === true });
+            this.dependencies.models = Object.assign(resource.value, { realmDatabase: config.realmDatabase, ipBansEnabled: config.ipBansEnabled !== false });
             const sql = resource.value.sequelize;
             await sql.authenticate();
             if (config.service === 'game_utilities') {

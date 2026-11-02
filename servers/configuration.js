@@ -7,7 +7,7 @@ function configuration(kind, env = process.env) {
     const database = require('../config/database.json')[environment];
     return {
         realmDatabase: env.BGS_REALM_DATABASE || 'skymist_operator',
-        ipBansEnabled: env.BGS_IP_BANS_ENABLED === 'true',
+        ipBansEnabled: env.BGS_IP_BANS_ENABLED !== 'false',
         env, environment: env.NODE_ENV, database,
         proxyProtocol: env.BGS_PROXY_PROTOCOL === 'v2',
         trustedProxyCIDRs: JSON.parse(env.BGS_TRUSTED_PROXY_CIDRS || '[]'),

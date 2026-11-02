@@ -11,12 +11,12 @@ const inputs = [
     { input_id: 'password', value: 'migration-password' }
 ];
 
-async function setup(t, { failure, missingAccount = false, missingTicket = false, compare } = {}) {
+async function setup(t, { failure, missingAccount = false, missingTicket = false, compare, ipBansEnabled = true, address = '192.0.2.1', ipBan = async () => null } = {}) {
     const writes = [];
     const errors = [];
     const requests = [];
     let ready = false;
-    const models = { IPBan: { findOne: async () => null }, Account: { findOne: async query => {
+    const models = { ipBansEnabled, IPBan: { findOne: ipBan }, Account: { findOne: async query => {
         assert.equal(query.where.email, 'demo@example.test');
         if (failure === 'mysql') { throw new Error('mysql unavailable'); }
         return missingAccount ? null : { id: '9007199254740993', hash };
@@ -24,7 +24,7 @@ async function setup(t, { failure, missingAccount = false, missingTicket = false
     const store = {
         getLoginTicket: async () => {
             if (failure === 'read') { throw new Error('Redis unavailable'); }
-            return missingTicket ? null : { ticket: 'ticket-value', program: 'WoW' };
+            return missingTicket ? null : { ticket: 'ticket-value', program: 'WoW', address };
         },
         authorizeLoginTicket: async (ticket, value) => {
             if (failure === 'write') { throw new Error('Redis write unavailable'); }
@@ -181,4 +181,46 @@ test('HTTPS wire headers retain Legion Content-Type casing and health can be int
     for (const route of ['alive', 'ready']) {
         assert.equal((await request('/' + route)).statusCode, 404);
     }
+});
+
+
+test('web login uses the ticket address and fails closed before checking credentials', async t => {
+    for (const address of ['::ffff:192.0.2.1', '2001:0db8::1']) {
+        const queried = [];
+        const app = await setup(t, { address, ipBan: async ({ where }) => { queried.push(where.address); return null; } });
+        const response = await fetch(app.url + '/bnetserver/login/ticket', {
+            method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.1' },
+            body: JSON.stringify({ inputs, address: '198.51.100.2' })
+        });
+        assert.equal((await response.json()).authentication_state, 'DONE');
+        assert.deepEqual(queried, [address.startsWith('::ffff:') ? '192.0.2.1' : '2001:db8::1']);
+    }
+    for (const options of [
+        { ipBan: async () => ({ expiresAt: null }) },
+        { address: null }, { address: '' }, { address: 'invalid' },
+        { ipBan: async () => { throw new Error('DB failed'); } }
+    ]) {
+        const app = await setup(t, { ...options, compare: () => assert.fail('Credentials checked before IP ban') });
+        assert.equal((await app.post()).status, 500);
+        assert.equal(app.writes.length, 0);
+    }
+});
+
+test('web login allows expired bans and explicitly disabled enforcement', async t => {
+    for (const options of [
+        { ipBan: async () => ({ expiresAt: new Date(0) }) },
+        { ipBansEnabled: false, address: null, ipBan: () => assert.fail('Disabled ban lookup') }
+    ]) {
+        const app = await setup(t, options);
+        assert.equal((await (await app.post()).json()).authentication_state, 'DONE');
+    }
+});
+
+test('web login rechecks a ban added while a ticket remains valid', async t => {
+    let banned = false;
+    const app = await setup(t, { ipBan: async () => banned ? { expiresAt: null } : null });
+    assert.equal((await (await app.post()).json()).authentication_state, 'DONE');
+    banned = true;
+    assert.equal((await app.post()).status, 500);
+    assert.equal(app.writes.length, 1);
 });

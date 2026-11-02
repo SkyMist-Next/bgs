@@ -2,7 +2,7 @@
 
 const bcrypt = require('bcrypt');
 const express = require('express');
-const { blocked, checkIP, canonicalIP } = require('./admin-state');
+const { blocked, checkIP } = require('./admin-state');
 
 module.exports = function createRestApp({ models, store, logger, isReady, isAccepting = () => true, compare = bcrypt.compare, track = operation => operation(), trustedProxyCIDRs = [], exposeHealth = true }) {
     const rest = express();
@@ -30,7 +30,6 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
     rest.use(express.urlencoded({ extended: true }));
     rest.set('trust proxy', trustedProxyCIDRs);
     // Do not log login-ticket URLs, bodies, credentials, or SQL error objects.
-    rest.use((req, res, next) => { req.verifiedAddress = canonicalIP(req.ip); next(); });
 
     if (exposeHealth) {
         rest.get('/alive', (req, res) => res.sendStatus(200));
@@ -74,11 +73,12 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
         }
 
         if (!isAccepting()) { return res.sendStatus(500); }
-        await checkIP(models, req.verifiedAddress);
         const ticket = await store.getLoginTicket(req.params.loginTicket);
         if (!ticket) {
             return res.sendStatus(500);
         }
+        // The frontend records the client address; the HTTPS peer may be a gateway.
+        await checkIP(models, ticket.address);
         const account = await models.Account.findOne({ where: { email: names[0].value } });
         if (blocked(account) || !await compare(passwords[0].value, account.hash)) {
             return res.json({ authentication_state: 'LOGIN' });

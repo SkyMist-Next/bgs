@@ -108,3 +108,14 @@ test('credential verification rechecks bans, expiry, suspension and connection i
         assert.equal(response.errorCode === 0, allowed);
     }
 });
+
+test('an IP ban added after Logon blocks credential verification', async () => {
+    const state = setup();
+    const identity = { connectionId: 'test-connection', address: '127.0.0.1' };
+    state.service.models.ipBansEnabled = true;
+    await state.service.Logon({ identity, queueName: 'client', request: { program: 'WoW', platform: 'Win' } });
+    state.service.models.IPBan.findOne = async () => ({ expiresAt: null });
+    state.messages.length = 0;
+    await state.service.VerifyWebCredential({ identity, queueName: 'client', request: { webCredentials: Buffer.from('ticket') } });
+    assert.notEqual(LogonResult.decode(state.messages[0][1]).errorCode, 0);
+});
