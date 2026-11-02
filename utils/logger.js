@@ -3,7 +3,7 @@
 const winston = require('winston');
 
 module.exports = function createLogger(fileConfig, environment = process.env.NODE_ENV) {
-    const { json = true, colorize = false, timestamp = true, ...fileOptions } = fileConfig;
+    const { console: consoleOnly = false, json = true, colorize = false, timestamp = true, ...fileOptions } = fileConfig;
     const formats = [winston.format.errors({ stack: true }), winston.format.splat()];
     if (timestamp) {
         formats.push(winston.format.timestamp());
@@ -13,7 +13,7 @@ module.exports = function createLogger(fileConfig, environment = process.env.NOD
     }
     formats.push(json ? winston.format.json() : winston.format.printf(info =>
         `${info.timestamp ? info.timestamp + ' ' : ''}${info.level}: ${info.stack || info.message}`));
-    const transports = [new winston.transports.File({
+    const transports = [new (consoleOnly ? winston.transports.Console : winston.transports.File)({
         ...fileOptions,
         format: winston.format.combine(...formats)
     })];

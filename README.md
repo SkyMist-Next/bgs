@@ -470,3 +470,15 @@ in this workspace session. Existing protobuf files/deletions and the excluded
 realm-list stub were preserved byte for byte. No commit, deployment, or migration
 was made. Live MySQL/RabbitMQ interruptions and worker restarts, native-client
 acceptance, and production-load testing remain separate integration acceptance.
+
+## Kubernetes deployment
+
+Use the sibling `bgs-chart/` production/local profiles. `BGS_PORT` overrides the
+application port, `BGS_TLS=true|false` controls TLS independently of NODE_ENV, and
+`BGS_HEALTH_PORT` enables internal `/alive` and `/ready` probes. Set Winston
+`console: true` for container logs. The chart supplies these settings.
+
+`scripts/deploy.js bootstrap|migrate|wait` provides image-owned credential
+bootstrap, serialized schema migrations, and read-only startup gating. Migration
+Jobs require the chart's scoped Kubernetes service account. No runtime package
+installation or Sequelize synchronization is performed.

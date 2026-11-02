@@ -26,7 +26,7 @@ class Receiver {
         if (this.stopping) { return; }
         await channel.prefetch(16);
         if (this.stopping) { return; }
-        const { queue } = await channel.assertQueue('', { autoDelete: true });
+        const { queue } = await channel.assertQueue('bgs.rpc.' + service.getServiceHash(), { durable: true, autoDelete: false, arguments: { 'x-queue-type': 'quorum' } });
         if (this.stopping) { return; }
         await channel.bindQueue(queue, 'battlenet_aurora_bus', service.getServiceHash().toString());
         if (this.stopping) { return; }

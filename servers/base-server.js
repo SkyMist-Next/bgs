@@ -84,6 +84,19 @@ class BaseServer {
 
     async startServer() {
         try {
+            if (this.config.healthPort) {
+                const health = require('node:http').createServer((req, res) => {
+                    const known = ['/alive', '/ready'].includes(req.url);
+                    res.statusCode = !known ? 404 : req.url === '/ready' && !this.isAccepting() ? 503 : 200;
+                    res.end();
+                });
+                this.own(health, server => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }),
+                    server => { server.closeAllConnections(); server.close(); });
+                await new Promise((resolve, reject) => {
+                    health.once('error', reject);
+                    health.listen(this.config.healthPort, '0.0.0.0', resolve);
+                });
+            }
             const startup = this.track(Promise.resolve().then(() => this.initialize()));
             await deadline(startup, this.startupTimeout, 'Server startup timed out', this.controller.signal);
             this.controller.signal.throwIfAborted();

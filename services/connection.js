@@ -39,7 +39,7 @@ class ConnectionService extends Service {
         }).
         then((channel) => {
             if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
-            return channel.assertQueue('', {autoDelete: true});
+            return channel.assertQueue('', {autoDelete: true, exclusive: true, durable: false});
         }).
         then((result) => {
             if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }

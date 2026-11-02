@@ -17,7 +17,7 @@ class ConnectionPlugin {
             if (this.stopping || !context.isAccepting()) { socket.destroy(); return; }
             this.service.onNewConnection(socket);
         };
-        return this.config.environment === 'development'
+        return (this.config.tlsEnabled ?? (this.config.environment === 'development'))
             ? require('node:tls').createServer(tlsOptions(this.config), accept)
             : require('node:net').createServer(accept);
     }

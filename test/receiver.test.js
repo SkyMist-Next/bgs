@@ -99,3 +99,21 @@ test('consumer cancellation failure still drains admitted replies before closing
     await rejected;
     assert.deepEqual(state.events.slice(-3), ['reply', 'ack', 'close']);
 });
+
+test('replicas share a durable quorum queue instead of broadcasting RPCs', async () => {
+    const declarations = [];
+    for (let replica = 0; replica < 2; replica++) {
+        const state = setup();
+        state.channel.assertQueue = async (name, options) => {
+            declarations.push({ name, options });
+            return { queue: name };
+        };
+        await state.receiver.start();
+        await state.receiver.closeChannel();
+    }
+    assert.equal(declarations[0].name, 'bgs.rpc.123');
+    assert.deepEqual(declarations[0], declarations[1]);
+    assert.deepEqual(declarations[0].options, {
+        durable: true, autoDelete: false, arguments: { 'x-queue-type': 'quorum' }
+    });
+});
