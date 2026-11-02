@@ -87,7 +87,7 @@ class BaseServer {
             if (this.config.healthPort) {
                 const health = require('node:http').createServer((req, res) => {
                     const known = ['/alive', '/ready'].includes(req.url);
-                    res.statusCode = !known ? 404 : req.url === '/ready' && !this.isAccepting() ? 503 : 200;
+                    res.statusCode = !known ? 404 : req.url === '/ready' && !this.isServing() ? 503 : 200;
                     res.end();
                 });
                 this.own(health, server => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }),
@@ -179,10 +179,12 @@ class BaseServer {
             (!this.requiresAmqp || (this.brokerOpen && !this.brokerBlocked)));
     }
 
+    isServing() { return this.isAccepting(); }
+
     async isReady() {
         if (this.state !== 'running') { return false; }
         await this.checkDependencies();
-        return Boolean(this.isAccepting());
+        return Boolean(this.isServing());
     }
 
     health(name, healthy) {

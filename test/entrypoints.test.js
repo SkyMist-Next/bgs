@@ -306,7 +306,7 @@ test('development HTTPS/TLS work and forced cleanup includes unfinished TLS hand
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bgs-server-tls-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
-        '-subj', '/CN=localhost', '-keyout', path.join(directory, 'key'), '-out', path.join(directory, 'cert')], { stdio: 'ignore' });
+        '-subj', '/CN=localhost', '-addext', 'basicConstraints=CA:FALSE', '-keyout', path.join(directory, 'key'), '-out', path.join(directory, 'cert')], { stdio: 'ignore' });
     const credentials = { key: fs.readFileSync(path.join(directory, 'key')), cert: fs.readFileSync(path.join(directory, 'cert')) };
     const web = rest.createServer(fixture({ environment: 'development', tls: credentials }).options);
     await web.start();

@@ -1,6 +1,5 @@
 'use strict';
 
-const { tlsOptions } = require('../configuration');
 
 class ConnectionPlugin {
     constructor(config = {}, factories = {}) {
@@ -18,7 +17,7 @@ class ConnectionPlugin {
             this.service.onNewConnection(socket);
         };
         return (this.config.tlsEnabled ?? (this.config.environment === 'development'))
-            ? require('node:tls').createServer(tlsOptions(this.config), accept)
+            ? require('node:tls').createServer(context.tlsOptions, accept)
             : require('node:net').createServer(accept);
     }
 

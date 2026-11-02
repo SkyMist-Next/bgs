@@ -1,6 +1,7 @@
 'use strict';
 
 const BaseServer = require('./base-server');
+const { TlsCredentials } = require('../utils/tls-credentials');
 
 class NetworkingServer extends BaseServer {
     constructor({ plugin, ...options } = {}) {
@@ -13,9 +14,18 @@ class NetworkingServer extends BaseServer {
         this.sockets = new Set();
     }
 
+    isServing() { return super.isServing() && (!this.tlsCredentials || this.tlsCredentials.valid()); }
+
     async onStart(dependencies, signal) {
+        let tlsOptions;
+        if (this.config.tlsEnabled ?? (this.config.environment === 'development')) {
+            this.tlsCredentials = new TlsCredentials(this.config, this.logger);
+            signal.addEventListener('abort', () => this.tlsCredentials.stop(), { once: true });
+            tlsOptions = await this.tlsCredentials.initialize();
+            signal.throwIfAborted();
+        }
         this.initializing = Promise.resolve(this.plugin.initialize({
-            ...dependencies, dependencies, signal,
+            ...dependencies, dependencies, signal, tlsOptions,
             isReady: () => this.isReady(), isAccepting: () => this.isAccepting(),
             onFatal: error => this.stop(error)
         }));
@@ -28,7 +38,7 @@ class NetworkingServer extends BaseServer {
         listener.on('connection', socket => {
             this.sockets.add(socket);
             socket.once('close', () => this.sockets.delete(socket));
-            if (signal.aborted) { socket.destroy(); }
+            if (signal.aborted || (this.tlsCredentials && !this.tlsCredentials.valid())) { socket.destroy(); }
         });
         if (signal.aborted) {
             await Promise.allSettled([this.closeListener(), this.plugin.forceClose()]);
@@ -49,6 +59,7 @@ class NetworkingServer extends BaseServer {
             try { listener.listen({ port: this.config.port, host: this.config.host, signal }); }
             catch (error) { failed(error); }
         });
+        this.tlsCredentials?.start(listener);
         this.logger?.info('Listening on port ' + listener.address().port);
     }
 

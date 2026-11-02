@@ -1,7 +1,6 @@
 'use strict';
 
 const createRestApp = require('../../utils/rest-app');
-const { tlsOptions } = require('../configuration');
 
 class RestPlugin {
     constructor(config = {}, factories = {}) {
@@ -32,7 +31,7 @@ class RestPlugin {
         this.app = createRestApp({ ...context, compare: this.factories.compare,
             isAccepting: () => this.accepting && context.isAccepting(), track: operation => this.track(operation) });
         this.server = (this.config.tlsEnabled ?? (this.config.environment === 'development'))
-            ? require('node:https').createServer(tlsOptions(this.config), this.app)
+            ? require('node:https').createServer(context.tlsOptions, this.app)
             : require('node:http').createServer(this.app);
         return this.server;
     }
