@@ -553,12 +553,14 @@ installation or Sequelize synchronization is performed.
 
 ## TLS provisioning and renewal
 
-Certificates are supplied externally; BGS does not issue certificates or manage CAs.
-Use separate dev and production CAs, and patch each client to trust its environment's
-CA bundle. Client CASC patching/signing is outside this repository. CA signing keys
+Production certificates are issued and renewed by cert-manager through the BGS
+chart. The independent `bgs-ca` Issuer in `skymist` signs production and development
+certificates. See [CA setup and development export](../infra/README.md#bgs-certificate-authority).
+Patch clients to trust the public BGS CA bundle. Client CASC patching/signing is outside this repository. CA signing keys
 must never be placed in BGS containers or server TLS Secrets.
 
-Provision the existing Minikube namespace with externally issued files:
+Export the development files following those instructions, then provision the
+existing Minikube namespace with the exported files:
 
 ```sh
 npm run local:tls -- --cert /secure/dev-fullchain.pem --key /secure/dev-key.pem --ca /secure/dev-ca.pem
@@ -588,9 +590,10 @@ while existing sessions remain usable and `/alive` stays healthy. Valid files re
 readiness automatically when dependencies are healthy. Injected `config.tls` credentials
 are static. Shutdown cancels reloads and prevents late activation.
 
-Production's external certificate owner must create and renew a standard mutable
-`kubernetes.io/tls` Secret before expiry. Set both `gateway.frontendSecret` and
-`gateway.restSecret` to that name, or retain separate names when needed. Only frontend
+Production enables `certificate.enabled`; cert-manager creates and renews the
+mutable TLS Secret used by the frontend and Gateway. For externally managed
+credentials, disable issuance and supply `gateway.frontendSecret` and
+`gateway.restSecret`. Only frontend
 pods mount server keys; Gateway terminates HTTPS and REST pods use internal HTTP.
 After renewal, check Gateway conditions, certificate fingerprints and expiry at both
 external endpoints, and each frontend replica's readiness/logs. Allow Kubernetes volume
