@@ -15,6 +15,74 @@ npm test
 npm run check:runtime
 ```
 
+### Local Kubernetes with Skaffold
+
+From this directory, use Node 26.13.0+, Skaffold 2.25.0+, Helm 3.2+/4,
+Docker, and kubectl. The sibling `../bgs-chart` supplies the complete local stack.
+The configuration targets context `minikube`, namespace/release `bgs-test`, and
+reuses its existing database, credentials, and PVCs. It builds locally with
+content-based image tags; no registry push or publisher credentials are needed.
+The local Docker build uses the Minikube host network for package downloads.
+Skaffold session labels are excluded from the Redis StatefulSet, including its
+immutable PVC templates, so starting a development session does not restart Redis.
+
+```sh
+nvm use
+npm ci
+skaffold run --kube-context minikube
+npm run test:local
+
+# Rebuild/redeploy on changes and retain the release when interrupted:
+npm run local:dev
+# Equivalent: skaffold dev --kube-context minikube --cleanup=false
+
+# In another terminal, for manual access:
+npm run local:forward
+npm run local:credentials
+```
+
+The preflight checks the existing namespace-scoped MariaDB operator, RabbitMQ
+operator, cert-manager, Gateway API v1 CRDs, `bgs-test-envoy` GatewayClass, and
+`bgs-local-tls` certificate Secret. Install these prerequisites separately; see
+the [chart documentation](../bgs-chart/README.md). This workflow uses the existing
+Envoy controller because this Minikube's Cilium does not support v1 TCPRoute.
+Missing prerequisites fail before Helm changes the release.
+
+The forwarding helper discovers Envoy by Gateway labels and binds only loopback:
+frontend TLS on port 1119 and HTTPS on port 8443. For manual clients, resolve
+`bgs.local` to `127.0.0.1` (for example through your hosts file) and trust the
+dev CA bundle from `bgs-test/bgs-local-tls`. Export only its public CA bundle:
+
+```sh
+kubectl --context minikube -n bgs-test get secret bgs-local-tls \
+  -o jsonpath='{.data.ca\.crt}' | base64 --decode > /tmp/bgs-local.crt
+```
+
+The full test verifies all five services and migration Jobs, then performs TLS
+Connect/Logon, the HTTPS challenge form, rejected and successful passwords, and
+VerifyWebCredentials/OnLogonComplete against real MariaDB, RabbitMQ, and Redis.
+It resolves the hostname to loopback internally and verifies certificates without
+requiring system trust changes. It opens temporary forwards, or verifies the
+existing endpoints if both ports are already occupied. Mixed/broken forwards fail.
+
+`test:local` creates `bgs-local@example.invalid` with one EU WoW game account and
+a random password retained in Secret `bgs-test-local-account`. Repeated tests
+reuse the same IDs and password; conflicting accounts are never overwritten.
+Only `local:credentials` prints the password. The fixture is opt-in, separate
+from migrations, and never runs during normal `npm test` or application startup.
+This validates the BGS login flow, not native WoW client or worldserver acceptance.
+
+Local validation on 2026-11-02 passed 91 Node tests, chart render/lint and server
+dry-run checks, and repeated full logins retaining account/game-account IDs 1/1.
+The existing six migrations, credentials, and PVC bindings were preserved.
+
+Stopping `local:forward` removes its own forwards. Always use `--cleanup=false`
+with `skaffold dev` for this persistent release: Skaffold's default cleanup
+uninstalls it. Do not use `skaffold delete` as a stop command. Failed upgrades
+retain resources for diagnosis; inspect Jobs and the migration journal, and only
+roll back to an image compatible with the existing schema. Never reset the DB
+or clear migration history to recover a development deployment.
+
 `npm ci` permits the bcrypt and microtime native installation scripts via
 `package.json#allowScripts`. Their prebuilt N-API binaries are used when available;
 source builds require Python 3, make, and a C++ compiler. The optional protobufjs
@@ -482,3 +550,51 @@ application port, `BGS_TLS=true|false` controls TLS independently of NODE_ENV, a
 bootstrap, serialized schema migrations, and read-only startup gating. Migration
 Jobs require the chart's scoped Kubernetes service account. No runtime package
 installation or Sequelize synchronization is performed.
+
+## TLS provisioning and renewal
+
+Certificates are supplied externally; BGS does not issue certificates or manage CAs.
+Use separate dev and production CAs, and patch each client to trust its environment's
+CA bundle. Client CASC patching/signing is outside this repository. CA signing keys
+must never be placed in BGS containers or server TLS Secrets.
+
+Provision the existing Minikube namespace with externally issued files:
+
+```sh
+npm run local:tls -- --cert /secure/dev-fullchain.pem --key /secure/dev-key.pem --ca /secure/dev-ca.pem
+```
+
+This requires OpenSSL and kubectl. It validates the key, dates, SAN `bgs.local`, and
+server chain, then publishes `tls.crt`, `tls.key`, and public `ca.crt` together into
+`minikube/bgs-test/bgs-local-tls`. It does not create a namespace, change system trust,
+or print private material. Existing field-ownership conflicts fail without forcing.
+Local preflight requires this CA bundle; login tests verify both endpoints against it.
+The default chart shares this Secret between Gateway HTTPS and frontend binary TLS.
+
+For direct Node use, set `BGS_TLS=true`, `BGS_TLS_SERVER_NAME=bgs.local`,
+`BGS_TLS_CERT_FILE=/secure/dev-fullchain.pem`, and `BGS_TLS_KEY_FILE=/secure/dev-key.pem`.
+Defaults remain `certs/tls.crt` and `certs/tls.key`. Set a matching `WEB_AUTH_URL`,
+e.g. `https://bgs.local:443/bnetserver/login/`, and resolve that hostname locally.
+The private key must be unencrypted PEM; the certificate file is leaf first, then
+required intermediates. The leaf must be a current non-CA server certificate with
+matching DNS SAN. No client certificates are requested; `ca.crt` is for client tooling.
+
+File-backed Node TLS listeners check for replacements every 30 seconds. Valid
+replacements activate for new connections without disconnecting established sessions.
+Publish cert/key together (an atomic directory symlink switch works outside Kubernetes).
+Invalid or inconsistent files retain the current identity and produce a deduplicated
+error. Expired active credentials make `/ready` fail and reject new connections,
+while existing sessions remain usable and `/alive` stays healthy. Valid files restore
+readiness automatically when dependencies are healthy. Injected `config.tls` credentials
+are static. Shutdown cancels reloads and prevents late activation.
+
+Production's external certificate owner must create and renew a standard mutable
+`kubernetes.io/tls` Secret before expiry. Set both `gateway.frontendSecret` and
+`gateway.restSecret` to that name, or retain separate names when needed. Only frontend
+pods mount server keys; Gateway terminates HTTPS and REST pods use internal HTTP.
+After renewal, check Gateway conditions, certificate fingerprints and expiry at both
+external endpoints, and each frontend replica's readiness/logs. Allow Kubernetes volume
+propagation plus one polling interval; no frontend rollout is required. Verify the chosen
+Gateway controller reconciles Secret updates. Monitor endpoint expiry independently,
+including the Gateway. Recover by republishing the previous still-valid credentials;
+CA changes require a coordinated external client trust rollout.

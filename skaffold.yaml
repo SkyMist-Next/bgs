@@ -1,23 +1,47 @@
-apiVersion: skaffold/v1beta12
+apiVersion: skaffold/v4beta14
 kind: Config
+metadata:
+  name: bgs-local
+resourceSelector:
+  deny:
+    # Session labels must not restart the persistent Redis node.
+    - groupKind: StatefulSet.apps
+      labels: ['.*']
 build:
+  local:
+    push: false
+    useDockerCLI: true
+    useBuildkit: true
+  tagPolicy:
+    inputDigest: {}
   artifacts:
-  - image: netcho/bnetserver
-    kaniko:
-      buildContext:
-        localDir: {}
-  cluster:
-    pullSecretName: docker-hub
-    namespace: default
+    - image: bgs
+      docker:
+        dockerfile: Dockerfile
+        # Minikube's nested Docker bridge cannot reach the package mirrors.
+        network: host
 deploy:
+  kubeContext: minikube
+  statusCheck: true
+  statusCheckDeadlineSeconds: 1200
   helm:
+    hooks:
+      before:
+        - host:
+            command: [node, scripts/local.js, preflight]
+    flags:
+      install: [--wait-for-jobs, --timeout=20m]
+      upgrade: [--wait-for-jobs, --timeout=20m]
     releases:
-    - name: aurora-production
-      chartPath: ../chart/
-      values:
-        image: netcho/bnetserver
-      namespace: default
-      setValues:
-        mysql.database: battlenet
-        mysql.hostname: 192.168.1.4
-        rabbitmq.rabbitmq.password: 65sdof6516
+      - name: bgs-test
+        namespace: bgs-test
+        chartPath: ../bgs-chart
+        valuesFiles: [../bgs-chart/values-local.yaml]
+        skipBuildDependencies: true
+        wait: true
+        setValues:
+          gateway.className: bgs-test-envoy
+          webAuthUrl: https://bgs.local:8443/bnetserver/login/
+        setValueTemplates:
+          image.repository: '{{.IMAGE_REPO_bgs}}'
+          image.tag: '{{.IMAGE_TAG_bgs}}'

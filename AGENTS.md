@@ -16,6 +16,10 @@ Entry points: `frontend.js` (client TCP connections), `rest.js` (web authenticat
 - `npm run lint`: lint active JavaScript with ESLint flat configuration.
 - `npm test`: run focused tests with Node's built-in runner and controlled dependencies.
 - `npm run test:redis`: run the opt-in isolated Docker Sentinel integration and storage measurements (Linux bridge networking).
+- `skaffold run --kube-context minikube`: build locally and upgrade the sibling chart's existing `bgs-test` release.
+- `npm run local:dev`: run Skaffold with release cleanup disabled; preserve the database and PVCs.
+- `npm run test:local`: check the deployed stack and full RPC/HTTPS login with a retained local fixture account.
+- `npm run local:forward` / `npm run local:credentials`: forward Envoy on loopback ports 1119/8443 or explicitly display the local fixture credentials.
 - `npm run check:runtime`: load production dependencies and exercise native addons.
 - `node scripts/benchmark-auth.js`: compare synchronous and asynchronous password checks with local HTTP and dependency substitutes.
 - `node --check services/authentication.js`: check syntax; substitute the changed file.
@@ -32,7 +36,7 @@ Design changes to support multiple instances, explicit connection-state ownershi
 
 ## Testing Guidelines
 
-Use Node's built-in test runner (`npm test`); no integration stack or coverage threshold is configured. Tests cover model associations, 64-bit identifiers, fixed protobuf fixtures and service hashes, timestamps, REST/RPC authentication, asynchronous password verification, dependency rejection, logging, Redis configuration and storage boundaries, realm operations, readiness, and worker draining. Run lint, syntax checks, and affected flows. Check `/alive`, `/ready`, and authentication for REST changes. Live worker restarts, dependency interruptions, failover, and production performance require separate integration acceptance.
+Use Node's built-in test runner (`npm test`); no coverage threshold is configured. `npm run test:local` separately exercises the persistent Minikube stack and requires its installed operators and TLS Secret. Tests cover model associations, 64-bit identifiers, fixed protobuf fixtures and service hashes, timestamps, REST/RPC authentication, asynchronous password verification, dependency rejection, logging, Redis configuration and storage boundaries, realm operations, readiness, and worker draining. Run lint, syntax checks, and affected flows. Check `/alive`, `/ready`, and authentication for REST changes. Live worker restarts, dependency interruptions, failover, and production performance require separate integration acceptance.
 
 ## Commit & Pull Request Guidelines
 

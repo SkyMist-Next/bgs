@@ -9,7 +9,12 @@
     "lint": "eslint .",
     "test": "node --test --test-timeout=10000",
     "check:runtime": "node scripts/check-runtime.js",
-    "test:redis": "node scripts/redis-integration.js"
+    "test:redis": "node scripts/redis-integration.js",
+    "local:tls": "node scripts/local-tls.js",
+    "local:dev": "skaffold dev --kube-context minikube --cleanup=false",
+    "local:forward": "node scripts/local.js forward",
+    "local:credentials": "node scripts/local.js credentials",
+    "test:local": "node scripts/local.js test"
   },
   "engines": {
     "node": ">=26.13.0 <27"
