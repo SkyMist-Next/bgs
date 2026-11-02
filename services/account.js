@@ -14,11 +14,11 @@ const GameAccountTags = accountTypes.lookupType('bgs.protocol.account.v1.GameAcc
 const GameLevelInfo = accountTypes.lookupType('bgs.protocol.account.v1.GameLevelInfo');
 const GameStatus = accountTypes.lookupType('bgs.protocol.account.v1.GameStatus');
 
-const models = require('../models');
 
 class AccountService extends Service{
-    constructor() {
-        super('AccountService', 'proto/bgs/low/pb/client/account_service.proto');
+    constructor({ logger, models }) {
+        super('AccountService', 'proto/bgs/low/pb/client/account_service.proto', { logger });
+        this.models = models;
 
         this.registerHandler('GetAccountState', this.GetAccountStatus.bind(this));
 
@@ -26,7 +26,7 @@ class AccountService extends Service{
     }
 
     GetAccountStatus(context) {
-        global.logger.debug('Received GetAccountStatus for accountId:' + context.request.entityId.low.toString());
+        this.logger.debug('Received GetAccountStatus for accountId:' + context.request.entityId.low.toString());
 
         context.response.state = AccountState.create();
         context.response.tags = AccountTags.create();
@@ -44,12 +44,12 @@ class AccountService extends Service{
     }
 
     GetGameAccountStatus(context) {
-        global.logger.debug('Received GetGameAccountStatus for gameAccountId:' + context.request.gameAccountId.low.toString());
+        this.logger.debug('Received GetGameAccountStatus for gameAccountId:' + context.request.gameAccountId.low.toString());
 
         context.response.state = GameAccountState.create();
         context.response.tags = GameAccountTags.create();
 
-        return models.GameAccount.findByPk(context.request.gameAccountId.low.toString()).
+        return this.models.GameAccount.findByPk(context.request.gameAccountId.low.toString()).
         then((gameAccount) => {
             if(Object.hasOwn(context.request.options, 'fieldGameLevelInfo')) {
                 context.response.state.gameLevelInfo = GameLevelInfo.create();

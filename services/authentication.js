@@ -8,11 +8,13 @@ const crypto = require('crypto');
 const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
 const AuthenticationListener = require('../listeners/authentication');
-const models = require('../models');
 
 class AuthenticationService extends Service {
-    constructor() {
-        super('AuthenticationService', 'proto/bgs/low/pb/client/authentication_service.proto');
+    constructor({ logger, models, store, amqpConnection }) {
+        super('AuthenticationService', 'proto/bgs/low/pb/client/authentication_service.proto', { logger });
+        this.models = models;
+        this.store = store;
+        this.amqpConnection = amqpConnection;
 
         this.registerHandler('Logon', this.Logon.bind(this));
 
@@ -20,13 +22,13 @@ class AuthenticationService extends Service {
     }
 
     async Logon(context) {
-        global.logger.debug('Logon Request for program ' + context.request.program + ' on ' + context.request.platform);
+        this.logger.debug('Logon Request for program ' + context.request.program + ' on ' + context.request.platform);
         const loginTicket = crypto.randomBytes(20).toString('hex');
         try {
-            const webAuthUrl = await global.store.getMetadata('/aurora/services/' + this.getServiceName() + '/WebAuthUrl');
+            const webAuthUrl = await this.store.getMetadata('/aurora/services/' + this.getServiceName() + '/WebAuthUrl');
             if (!webAuthUrl) { throw new Error('Web authentication URL is not configured'); }
-            await global.store.createLoginTicket(loginTicket, context.request.program);
-            const listener = new ChallengeListener(context);
+            await this.store.createLoginTicket(loginTicket, context.request.program);
+            const listener = new ChallengeListener(context, this.amqpConnection);
             try {
                 await listener.OnExternalChallenge(webAuthUrl + loginTicket);
             }
@@ -36,7 +38,7 @@ class AuthenticationService extends Service {
             return 0;
         }
         catch (error) {
-            global.logger.error(error);
+            this.logger.error(error);
             throw 0x00000001;
         }
     }
@@ -50,10 +52,10 @@ class AuthenticationService extends Service {
         let account;
         let gameAccounts;
         try {
-            const ticket = await global.store.getLoginTicket(loginTicket);
+            const ticket = await this.store.getLoginTicket(loginTicket);
             const accountId = ticket && ticket.accountId;
-            account = accountId && await models.Account.findOne({
-                include: [{ model: models.GameAccount, as: 'gameAccounts' }], where: { id: accountId }
+            account = accountId && await this.models.Account.findOne({
+                include: [{ model: this.models.GameAccount, as: 'gameAccounts' }], where: { id: accountId }
             });
             if (!account) {
                 status = 0x0000000A; // ERROR_NO_AUTH
@@ -67,10 +69,10 @@ class AuthenticationService extends Service {
             }
         }
         catch (error) {
-            global.logger.error(error);
+            this.logger.error(error);
             status = 0x00000001; // ERROR_INTERNAL
         }
-        const listener = new AuthenticationListener(context);
+        const listener = new AuthenticationListener(context, this.amqpConnection);
         try {
             await listener.OnLogonComplete(status, status === 0 ? account : undefined, gameAccounts);
             return 0;

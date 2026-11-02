@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt');
 const express = require('express');
 const morgan = require('morgan');
 
-module.exports = function createRestApp({ models, store, logger, isReady, isAccepting = () => true, compare = bcrypt.compare }) {
+module.exports = function createRestApp({ models, store, logger, isReady, isAccepting = () => true, compare = bcrypt.compare, track = operation => operation() }) {
     const rest = express();
     rest.use(express.json());
     rest.use(express.urlencoded({ extended: true }));
@@ -35,7 +35,7 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
         });
     });
 
-    rest.post('/bnetserver/login/:loginTicket', async (req, res) => {
+    rest.post('/bnetserver/login/:loginTicket', (req, res) => track(async () => {
         const inputs = req.body && req.body.inputs;
         if (!Array.isArray(inputs) || inputs.some(input =>
             !input || typeof input !== 'object' || typeof input.input_id !== 'string')) {
@@ -60,7 +60,7 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
         }
         await store.authorizeLoginTicket(req.params.loginTicket, account.id);
         return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
-    });
+    }));
 
     // Express 5 forwards rejected async handlers here, including dependency failures.
     rest.use((error, req, res, next) => {

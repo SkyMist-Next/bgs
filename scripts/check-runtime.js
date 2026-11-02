@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const bcrypt = require('bcrypt');
 const microtime = require('microtime');
-const createDatabase = require('../utils/database');
+const createDatabase = require('../models');
 const Service = require('../services/service');
 
 async function checkRuntime() {
@@ -16,7 +16,7 @@ async function checkRuntime() {
     const db = createDatabase({ dialect: 'mysql', database: 'check', username: 'check', password: '' }, { debug() {} });
     assert.equal(db.GameAccount.build({ id: '9007199254740993', program: 'WoW', region: 2 }).entityId.low.toString(), '9007199254740993');
     await db.sequelize.close();
-    assert.equal(new Service('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto').getServiceHash(), 0x65446991);
+    assert.equal(new Service('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto', { logger: { error() {} } }).getServiceHash(), 0x65446991);
     console.log(`Runtime checks passed: ${process.version}; native addons, dependencies, models, protobuf`);
 }
 

@@ -20,9 +20,10 @@ npm run check:runtime
 source builds require Python 3, make, and a C++ compiler. The optional protobufjs
 postinstall script is disabled; loading and encoding are covered by tests.
 
-Startup requires MySQL, RabbitMQ, Redis with Sentinel, operator-supplied
-`config/database.json` and `config/winston.json`, and the existing environment
-variables `REDIS_SENTINELS`, `REDIS_MASTER_NAME`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and
+Startup requires MySQL, Redis with Sentinel, and operator-supplied
+`config/database.json` and `config/winston.json`. Workers and Connection additionally
+require RabbitMQ; REST never opens a RabbitMQ connection. Configuration uses the
+existing environment variables `REDIS_SENTINELS`, `REDIS_MASTER_NAME`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and
 `RABBITMQ_SERVICE_NAME`.
 
 ```sh
@@ -40,8 +41,12 @@ excluded from the Docker build context.
 Database configuration accepts `use_env_variable`, with the legacy
 `use_env_letiable` spelling retained as a fallback. The conventional key takes
 precedence if both are supplied. Table names, SQL column names, model associations,
-and entity-ID getters are preserved. Startup retains its existing Sequelize
-`sync()` behavior. No migration has been executed as part of this upgrade.
+and entity-ID getters are preserved. Startup uses Sequelize `authenticate()` and
+never creates or alters tables by default. The selected database configuration may
+set `syncOnStart: true` only in development; other environments reject it before
+opening dependencies. Its default is `false`, and non-boolean values are rejected.
+Production schema creation and changes require migrations. No migration has been
+executed as part of this refactor.
 The existing account foreign-key migration now uses Sequelize 6's
 `addConstraint(table, { fields, ... })` API with the same constraint definition.
 
@@ -118,15 +123,22 @@ if its reply was lost. Startup/recovery has a 60-second budget; socket retries u
 backoff with jitter capped at two seconds. Sentinel notifications trigger discovery,
 with a 30-second periodic refresh to avoid overlapping slow seed discovery loops.
 
-REST `/alive` remains 200. `/ready` reports 200 only after initialization and current
-primary/SQL probes succeed, otherwise 500; probes are coalesced and cached for at
-most one second. Frontend and workers await Redis, SQL initialization, and AMQP
-before accepting work. Redis outages fail requests promptly; the primary health
-monitor initiates shutdown if recovery exceeds its budget. SIGINT/SIGTERM stop new
-work and drain accepted work for up to ten seconds, then close dependencies; a
-one-second forced-cleanup budget precedes process exit. Worker replies respect AMQP
-backpressure and prefetch is bounded at 16. Existing RabbitMQ routing and broader
-frontend protocol behavior are not redesigned here.
+REST binds after initialization, so health endpoints are unreachable during startup.
+Once listening, `/alive` remains 200 and `/ready` reports 200 when required dependencies
+are healthy, otherwise 500. Probes have a two-second deadline and one-second cache;
+a timed-out underlying probe remains coalesced until it actually finishes. Workers
+and Connection also require an open, unblocked RabbitMQ connection. Dependency
+failures disable new application work while admitted work drains. Redis, sustained
+SQL failure, and RabbitMQ blocking have a 60-second recovery budget. Unexpected
+broker loss, worker-channel loss, or consumer cancellation initiates shutdown with
+a failure exit; there is no in-process AMQP reconnect or replay. A client-owned
+channel failure disconnects that client.
+
+SIGINT/SIGTERM immediately disable admission and readiness. A ten-second **total**
+graceful budget covers cancellation, workload draining, and dependency closure;
+one additional second bounds forced cleanup. Worker replies retain prefetch 16,
+backpressure, and the existing acknowledgement behavior. RabbitMQ routing, ticket
+lifetimes, RPC handlers, and protocol definitions remain compatible.
 
 Sentinel uses asynchronous replication: recent acknowledged writes can be lost
 during failover. Missing tickets fail authentication safely and the client must
@@ -293,3 +305,168 @@ equivalent-durability claim or production sizing result. RSS is the process life
 peak and therefore includes fixture preparation; host scheduling affects all results.
 Use `npm run test:redis` for current storage measurements and separate full-stack
 load/failover acceptance before production use.
+
+## Explicit runtime dependencies and validation (2026-11-02)
+
+This section records the earlier dependency-injection stage. Its module-level
+startup and SQL synchronization were subsequently replaced by the shared server
+lifecycle described below. The historical validation figures in this section refer
+to that earlier working-tree snapshot.
+
+Entrypoints own their logger, database, Redis store, and AMQP/server resources.
+`require('./models')` exports `createDatabase(config, logger, environment)`;
+importing it or a service does not read operator configuration or construct a
+database. Services receive dependency objects and retain only the dependencies
+they use: the base service takes `logger`; authentication takes `logger`, `models`,
+`store`, and `amqpConnection`; account takes `logger` and `models`; game utilities
+take `logger` and `store`; connection service and receiver take `logger`, `store`,
+and `amqpConnection`. Listeners receive an AMQP connection argument. Each TCP
+connection receives its logger, service hash/name, and bound owning-service callback.
+There is no application-global fallback; ESLint rejects `global` and `globalThis`
+in active JavaScript. The excluded realm-list stub remains unchanged.
+
+- Node 26.13.0: lint and syntax checks passed for all 46 active JavaScript files.
+- With the repository schemas, the baseline was 29 passing / 19 failing tests.
+  After the refactor, 41 pass / 22 fail: the same 19 failures plus three new
+  isolation tests encounter `FNV.update expectes String or Buffer` because the
+  schemas lack the descriptor option consumed by the service hash code.
+  The runtime check encounters the same mismatch after native/dependency/model checks.
+- In temporary validation copies using only the schemas from
+  `78cc15f821be50a745da77a864d2b8c548c2de72`, the baseline passed all 48 tests;
+  the refactor passed all **63 tests** and `scripts/check-runtime.js`.
+  Repository schemas were not changed. New coverage checks independent workers,
+  model queries, callback channels, TCP dispatch, loggers, shutdown, import side
+  effects, partial startup, and resources that finish opening during shutdown.
+- `scripts/redis-integration.js` passed credentials, unavailable seed, cross-client
+  state, expiry race, primary failover, Sentinel seed loss, no replay, and independent
+  shutdown. The harness removed its test containers.
+
+The existing HTTP/bcrypt benchmark ran three times before and after, with 64
+logins, concurrency eight, cost ten, and four libuv workers. The first pair ran in
+the working tree; two further pairs used the temporary before/after copies.
+Medians for the asynchronous production path were:
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Successful requests/second | 75.60 | 73.22 |
+| Login latency p95, ms | 117.48 | 117.99 |
+| Health latency p95, ms | 2.48 | 1.65 |
+| Event-loop delay p99, ms | 10.92 | 10.91 |
+| Server CPU time, ms | 3351.35 | 3518.13 |
+| Peak server RSS, MiB | 59.59 | 59.59 |
+| Request errors, every run | 0 | 0 |
+
+Synchronous-control throughput medians were 19.73 and 19.79 requests/second, also
+with zero errors. Asynchronous throughput ranges overlapped (68.44–77.15 before,
+72.58–77.48 after); these samples show no material regression in this controlled
+workload. The benchmark substitutes SQL/Redis and does not measure RPC/AMQP
+capacity. Live MySQL/RabbitMQ, native-client, and production-load acceptance remain
+separate; this refactor includes no protocol repair or deployment.
+
+
+## Shared server lifecycle (2026-11-02)
+
+`servers/base-server.js` owns dependencies, readiness, startup cancellation, process
+handlers, and cleanup. `ServiceServer` hosts a selected RPC service and receiver;
+`NetworkingServer` hosts a plugin and its single TCP/TLS or HTTP/HTTPS listener.
+The three entry points export `createServer(options)` without reading operator
+configuration, opening connections, or installing process handlers on import.
+Their existing npm commands remain the CLI launchers.
+
+Constructors accept `{ config, logger, factories }` and remain inert. `start()`
+returns the same promise during startup or while running. `stop(reason)` returns
+the shared `closed` promise, which resolves to `{ exitCode, forced, errors }`;
+passing an Error marks failure. States are `created`, `starting`, `running`,
+`stopping`, and `stopped`. Startup failure goes through cleanup, and stopped
+instances cannot restart. `isReady()` is asynchronous; `isAccepting()` is the
+synchronous admission gate. Temporary degradation changes readiness, not state.
+
+Independent dependencies connect concurrently within one 60-second startup
+budget. `database`, `store`, and `amqp` factories receive configuration, logger,
+environment, cancellation signal, and fatal-error callback. They may return
+resources or promises. Resources and unresolved acquisitions remain owned after
+a waiter times out; late arrivals are closed without activating the server.
+Injected databases can provide `forceClose()` or a `forceDatabase` factory hook.
+The default database tracks native connections so forced cleanup destroys active
+MySQL sockets and rejects connections that arrive afterward.
+
+The protected hooks are `onStart(dependencies, signal)`, `onStopAccepting()`,
+`onDrain()`, and `onForceClose()`. Public methods enforce shutdown ordering:
+disable admission, cancel startup, initiate listener/consumer closure, drain
+admitted work and pending output, close workload resources, then close dependencies.
+All cleanups are attempted even if another fails. The owned SIGINT, SIGTERM, and
+unhandled-rejection handlers are installed at startup and removed during cleanup.
+Programmatic `stop()` never exits the process. CLI launchers await `closed`, set
+the exit status, and force process exit when forced cleanup was necessary.
+Deadline and probe helpers live in `utils/deadline.js` and
+`utils/dependency-probe.js`; Redis and its integration harness do not import servers.
+
+A networking plugin implements:
+
+| Method | Responsibility |
+| --- | --- |
+| `initialize(context)` | Return an unbound Node server after initialization. |
+| `stopAccepting()` | Disable new application work on all connections. |
+| `drain()` | Complete admitted handlers/output and close owned sessions/channels. |
+| `forceClose()` | Terminate remaining workload resources. |
+
+The context supplies connected dependencies, `isReady`, `isAccepting`, `signal`,
+and `onFatal`. The contract is checked before acquiring dependencies. The networking
+host attaches listener errors and tracks raw sockets, including unfinished TLS
+handshakes, before binding. It starts listener closure, drains the plugin, and then
+waits for listener closure. REST publishes `WEB_AUTH_URL` before listening, tracks
+asynchronous authentication through completion even after client disconnect, and
+retires idle HTTP connections. Connection drains local handlers, worker replies,
+socket output, broker backpressure, and owned channels before shared AMQP closure.
+REST/local RPC handler sets are limited to 1,024, forwarded calls to 128 per client,
+and TCP queued socket output to 1 MiB; overflow rejects work or closes the client.
+
+Validation used Node 26.13.0 and the current repository schemas. The pre-refactor
+working tree passed 99 tests and runtime checks; the earlier schema incompatibility
+was absent, so schema substitution was unnecessary. The refactor passed lint,
+changed-file syntax checks, the complete test suite, and runtime checks. New tests
+cover independent instances, repeated start/stop, partial startup, late acquisitions,
+signal removal, cleanup failures, bounded probes, worker cancellation/backpressure,
+real bind failures, HTTP keep-alive and disconnected clients, pending TCP replies,
+stalled output, development HTTPS/TLS, unfinished handshakes, and database defaults.
+The isolated Docker Sentinel integration passed credentials, unavailable seed,
+cross-client state, expiry races, primary promotion, seed loss, no replay, and
+independent shutdown, and removed its test resources.
+
+```sh
+npm run lint
+npm test
+npm run check:runtime
+npm run test:redis
+node scripts/benchmark-auth.js
+```
+
+The benchmark now includes the production networking wrapper in addition to the
+existing synchronous and asynchronous controls. Three sequential before/after
+pairs used the same 64 logins, concurrency eight, bcrypt cost ten, four libuv
+workers, and controlled SQL/Redis dependencies. Medians were:
+
+| Measurement | Before: asynchronous REST | After: NetworkingServer + RestPlugin |
+| --- | ---: | ---: |
+| Successful requests/second | 73.35 | 76.79 |
+| Login latency p95, ms | 120.15 | 116.87 |
+| Health latency p95, ms | 2.05 | 1.78 |
+| Event-loop delay p99, ms | 10.86 | 11.02 |
+| Server CPU time, ms | 3481.20 | 3316.23 |
+| Peak server RSS, MiB | 59.41 | 59.90 |
+| Errors, every run | 0 | 0 |
+
+Before/after throughput ranges overlapped (72.09–76.06 and 73.60–78.03 requests/s).
+These samples show no evident regression; they do not establish a production
+speedup. Controlled active HTTP shutdown completed about 1–2 ms after releasing
+the admitted handler. With a 20 ms graceful test budget, stalled TCP output and
+stalled authentication forced cleanup in about 21 ms. A separate measurement of
+the default budgets with active HTTP and stuck SQL cleanup completed in about
+11 seconds, with a failure exit status and forced cleanup.
+
+The baseline snapshot is at `/tmp/bgs-server-refactor-baseline`, and paired
+benchmark/default-shutdown evidence is at `/tmp/bgs-server-refactor-validation`
+in this workspace session. Existing protobuf files/deletions and the excluded
+realm-list stub were preserved byte for byte. No commit, deployment, or migration
+was made. Live MySQL/RabbitMQ interruptions and worker restarts, native-client
+acceptance, and production-load testing remain separate integration acceptance.

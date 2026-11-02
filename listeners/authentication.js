@@ -17,8 +17,8 @@ const Region = {
 };
 
 class AuthenticationListener extends Listener {
-    constructor(context){
-        super('AuthenticationListener', 'proto/bgs/low/pb/client/authentication_service.proto');
+    constructor(context, amqpConnection){
+        super('AuthenticationListener', 'proto/bgs/low/pb/client/authentication_service.proto', amqpConnection);
         this.setClientQueueName(context.queueName);
     }
 

@@ -1,61 +1,110 @@
 'use strict';
 
-const { once } = require('node:events');
+const { waitForDrain } = require('../utils/backpressure');
 
 class Receiver {
-    constructor(service) {
-        this.service = service;
+    constructor(service, { logger, store, amqpConnection, isAccepting = () => store.healthy, onFatal = () => {} }) {
+        Object.assign(this, { logger, store, amqpConnection, service, isAccepting, onFatal });
         this.pending = new Set();
         this.stopping = false;
     }
 
-    async start() {
+    start() {
+        if (this.stopping) { return Promise.resolve(); }
+        this.startTask ??= this.openChannel();
+        return this.startTask;
+    }
+
+    async openChannel() {
         const service = this.service;
-        this.amqpChannel = await global.amqpConnection.createChannel();
-        const channel = this.amqpChannel;
+        const channel = await this.amqpConnection.createChannel();
+        this.amqpChannel = channel;
+        channel.on('error', () => this.fail('Worker channel failed'));
+        channel.on('close', () => this.fail('Worker channel closed'));
+        if (this.stopping) { await this.closeOwnedChannel(); return; }
         await channel.assertExchange('battlenet_aurora_bus', 'direct');
+        if (this.stopping) { return; }
         await channel.prefetch(16);
+        if (this.stopping) { return; }
         const { queue } = await channel.assertQueue('', { autoDelete: true });
+        if (this.stopping) { return; }
         await channel.bindQueue(queue, 'battlenet_aurora_bus', service.getServiceHash().toString());
-        await global.store.setMetadata('/aurora/services/' + service.getServiceName() + '/hash', service.getServiceHash());
+        if (this.stopping) { return; }
+        await this.store.setMetadata('/aurora/services/' + service.getServiceName() + '/hash', service.getServiceHash());
         if (this.stopping) { return; }
         const consumer = await channel.consume(queue, message => {
-            if (!message) { return; }
+            if (!message) { this.fail('Worker consumer cancelled'); return; }
             const call = this.receive(message);
             this.pending.add(call);
-            call.then(() => this.pending.delete(call), error => {
+            call.then(() => this.pending.delete(call), () => {
                 this.pending.delete(call);
-                global.logger.error(error);
+                this.fail('Worker reply failed');
             });
         });
         this.consumerTag = consumer.consumerTag;
-        if (this.stopping) { await channel.cancel(this.consumerTag); }
-        global.logger.info(service.getServiceName() + ' listening');
+        if (this.stopping) { await this.cancelConsumer(); return; }
+        this.logger.info(service.getServiceName() + ' listening');
+    }
+
+    fail(message) {
+        if (!this.stopping) { this.onFatal(new Error(message)); }
     }
 
     async receive(message) {
         const channel = this.amqpChannel;
         const context = { queueName: message.properties.replyTo, header: message.properties.headers, request: null, response: null };
         try {
-            const buffer = global.store.healthy
+            const buffer = !this.stopping && this.isAccepting()
                 ? await this.service.handleCall(context, message.content)
                 : await this.service.sendError(context, 1);
             if (Buffer.isBuffer(buffer) && !channel.sendToQueue(message.properties.replyTo, buffer,
                 { appId: this.service.getServiceName(), type: 'response' })) {
-                await once(channel, 'drain');
+                await waitForDrain(channel);
             }
         }
         finally {
-            // Retain at-most-once handling: failed publication must not replay ticket creation.
+            // Retain at-most-once handling: a failed reply must not replay ticket creation.
             channel.ack(message);
         }
     }
 
-    async closeChannel() {
+    cancelConsumer() {
+        if (!this.consumerTag || this.channelCloseTask) { return Promise.resolve(); }
+        this.cancelTask ??= this.amqpChannel.cancel(this.consumerTag);
+        return this.cancelTask;
+    }
+
+    stopAccepting() {
         this.stopping = true;
-        if (this.consumerTag) { await this.amqpChannel.cancel(this.consumerTag); }
-        await Promise.allSettled([...this.pending]);
-        if (this.amqpChannel) { await this.amqpChannel.close(); }
+        this.admissionTask ??= (async () => {
+            await this.startTask?.catch(() => {});
+            await this.cancelConsumer();
+        })();
+        return this.admissionTask;
+    }
+
+    closeOwnedChannel() {
+        if (!this.amqpChannel) { return Promise.resolve(); }
+        this.channelCloseTask ??= this.amqpChannel.close();
+        return this.channelCloseTask;
+    }
+
+    async drain() {
+        let cancellationError;
+        try {
+            try { await this.stopAccepting(); }
+            catch (error) { cancellationError = error; }
+            while (this.pending.size) { await Promise.allSettled([...this.pending]); }
+        }
+        finally { await this.closeOwnedChannel(); }
+        if (cancellationError) { throw cancellationError; }
+    }
+
+    forceClose() { this.stopping = true; return this.closeOwnedChannel(); }
+
+    closeChannel() {
+        this.closeTask ??= this.drain();
+        return this.closeTask;
     }
 }
 

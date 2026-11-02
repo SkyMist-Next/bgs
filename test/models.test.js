@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const createDatabase = require('../utils/database');
+const createDatabase = require('../models');
 const loadProto = require('../utils/protobuf');
 const EntityId = loadProto('proto/bgs/low/pb/client/entity_types.proto').lookupType('bgs.protocol.EntityId');
 const config = { dialect: 'mysql', database: 'bgs', username: 'test', password: 'test' };
@@ -79,4 +79,17 @@ test('existing foreign-key migration uses the Sequelize 6 API without changing t
         fields: ['account_id'], type: 'foreign key', name: 'account_key',
         references: { table: 'accounts', field: 'id' }, onDelete: 'cascade', onUpdate: 'cascade'
     }]);
+});
+
+
+test('forced database cleanup destroys active connections and rejects late native acquisitions', async () => {
+    const db = createDatabase(config, logger);
+    let destroyed = 0;
+    const connection = { destroy: () => { destroyed++; } };
+    await db.sequelize.runHooks('afterConnect', connection);
+    await db.forceClose();
+    assert.equal(destroyed, 1);
+    await assert.rejects(db.sequelize.runHooks('afterConnect', { destroy: () => { destroyed++; } }), /after forced shutdown/);
+    assert.equal(destroyed, 2);
+    await db.sequelize.close();
 });

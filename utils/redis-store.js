@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const { setTimeout: delay } = require('node:timers/promises');
 const { createSentinel } = require('redis');
-const { deadline: withDeadline } = require('./lifecycle');
+const { deadline: withDeadline } = require('./deadline');
 
 const METADATA = '/aurora/metadata';
 const LOGIN_PREFIX = '/aurora/services/AuthenticationService/loginTickets/';
@@ -85,19 +85,34 @@ class RedisStore {
         this.client.on('end', () => { this.healthy = false; this.generation++; });
     }
 
-    async connect() {
+    connect() {
+        this.connectTask ??= this.connectClient();
+        return this.connectTask;
+    }
+
+    async connectClient() {
         const deadline = Date.now() + this.recoveryTimeout;
         let attempt = 0;
         while (!this.closing && Date.now() < deadline) {
             let timer;
             try {
+                // Retain unfinished connection ownership after the waiter times out.
+                const connecting = Promise.resolve().then(() => {
+                    if (this.closing) { throw new Error('Redis startup cancelled'); }
+                    return this.client.connect();
+                });
+                void connecting.then(() => {
+                    if (this.closing) { return this.client.destroy(); }
+                }).catch(() => {});
                 await Promise.race([
-                    this.client.connect(),
+                    connecting,
                     new Promise((resolve, reject) => {
                         timer = setTimeout(() => reject(new Error('Redis startup timed out')), deadline - Date.now());
                     })
                 ]);
-                await this.ping();
+                if (this.closing) { throw new Error('Redis startup cancelled'); }
+                await this.probe();
+                if (this.closing) { throw new Error('Redis startup cancelled'); }
                 this.healthy = true;
                 this.monitor();
                 return;
@@ -110,6 +125,7 @@ class RedisStore {
             }
             finally { clearTimeout(timer); }
         }
+        this.closing = true;
         throw new Error('Redis unavailable during startup');
     }
 
@@ -117,12 +133,14 @@ class RedisStore {
         if (this.closing) { return; }
         this.monitorTimer = setTimeout(async () => {
             try {
-                await this.ping();
+                await this.probe();
+                if (this.closing) { return; }
                 if (!this.healthy) { this.logger?.info('Redis primary available'); }
                 this.healthy = true;
                 this.unhealthySince = undefined;
             }
             catch {
+                if (this.closing) { return; }
                 this.healthy = false;
                 this.unhealthySince ??= Date.now();
                 if (Date.now() - this.unhealthySince >= this.recoveryTimeout) {
@@ -161,6 +179,21 @@ class RedisStore {
     }
 
     ping() { return this.run(client => client.ping()); }
+    probe() {
+        if (this.probeTask) { return this.probeTask; }
+        let underlying;
+        const task = this.run(client => {
+            underlying = Promise.resolve(client.ping());
+            return underlying;
+        });
+        this.probeTask = task;
+        // Keep a timed-out primary probe coalesced until the actual command ends.
+        void task.catch(() => {}).then(async () => {
+            await underlying?.catch(() => {});
+            this.probeTask = undefined;
+        });
+        return task;
+    }
     getMetadata(path) { return this.run(client => client.hGet(METADATA, path)); }
     setMetadata(path, value) { return this.run(client => client.hSet(METADATA, path, String(value))); }
     async getMetadataJSON(path) {

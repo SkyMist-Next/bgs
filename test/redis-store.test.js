@@ -104,3 +104,38 @@ test('startup failure is bounded even when client connect never settles', async 
     assert.equal(destroyed, true);
     assert.equal(store.healthy, false);
 });
+
+
+test('primary probes remain coalesced after the caller times out', async () => {
+    const { client, store } = setup({ operationTimeout: 5 });
+    let release;
+    let calls = 0;
+    client.ping = () => { calls++; return new Promise(resolve => { release = resolve; }); };
+    const first = store.probe();
+    assert.equal(store.probe(), first);
+    await assert.rejects(first, /timed out/);
+    await assert.rejects(store.probe(), /timed out/);
+    assert.equal(calls, 1);
+    release('PONG');
+    await new Promise(resolve => setImmediate(resolve));
+    client.ping = async () => 'PONG';
+    assert.equal(await store.probe(), 'PONG');
+    await store.destroy();
+});
+
+test('a Redis connection completing after shutdown is destroyed and cannot start monitoring', async () => {
+    const { client, store } = setup({ recoveryTimeout: 20 });
+    let open;
+    let destroyed = 0;
+    client.connect = () => new Promise(resolve => { open = resolve; });
+    client.destroy = async () => { destroyed++; };
+    const connecting = store.connect();
+    const rejected = assert.rejects(connecting, /unavailable during startup/);
+    await new Promise(resolve => setImmediate(resolve));
+    await store.destroy();
+    open();
+    await rejected;
+    assert.ok(destroyed >= 2);
+    assert.equal(store.healthy, false);
+    assert.equal(store.monitorTimer, undefined);
+});

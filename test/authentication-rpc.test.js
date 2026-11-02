@@ -4,23 +4,18 @@ const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const loadProto = require('../utils/protobuf');
 
-// Substitute only the configured database boundary; use real services and protobuf codecs.
-const modelsPath = require.resolve('../models');
-const models = { Account: {}, GameAccount: {} };
-require.cache[modelsPath] = { exports: models };
 const AuthenticationService = require('../services/authentication');
 const root = loadProto('proto/bgs/low/pb/client/authentication_service.proto');
 const LogonResult = root.lookupType('bgs.protocol.authentication.v1.LogonResult');
 const EntityId = root.lookupType('bgs.protocol.EntityId');
 
-function setup(t, { missingAccount = false, program = 'WoW', fail } = {}) {
+function setup({ missingAccount = false, program = 'WoW', fail } = {}) {
     const messages = [];
     const writes = [];
     let closed = 0;
-    const old = { logger: global.logger, store: global.store, amqpConnection: global.amqpConnection };
-    t.after(() => Object.assign(global, old));
-    global.logger = { debug() {}, error() {} };
-    global.store = {
+    const models = { Account: {}, GameAccount: {} };
+    const logger = { debug() {}, error() {} };
+    const store = {
         getMetadata: async () => {
             if (fail === 'read') { throw new Error('Redis rejected'); }
             return 'https://example.test/login/';
@@ -34,7 +29,7 @@ function setup(t, { missingAccount = false, program = 'WoW', fail } = {}) {
             writes.push({ ticket, program });
         }
     };
-    global.amqpConnection = { createChannel: async () => {
+    const amqpConnection = { createChannel: async () => {
         if (fail === 'channel') { throw new Error('channel rejected'); }
         return {
             sendToQueue: (...args) => { messages.push(args); return true; },
@@ -51,11 +46,11 @@ function setup(t, { missingAccount = false, program = 'WoW', fail } = {}) {
             gameAccounts: [{ program: 'WoW', entityId: EntityId.fromObject({ high: '144115196671098711', low: '9007199254740995' }) }]
         };
     };
-    return { messages, writes, closed: () => closed, service: new AuthenticationService() };
+    return { messages, writes, closed: () => closed, service: new AuthenticationService({ logger, models, store, amqpConnection }) };
 }
 
-test('Logon publishes its challenge after atomic ticket creation and closes its callback channel', async t => {
-    const state = setup(t);
+test('Logon publishes its challenge after atomic ticket creation and closes its callback channel', async () => {
+    const state = setup();
     assert.equal(await state.service.Logon({ queueName: 'client', request: { program: 'WoW', platform: 'Win' } }), 0);
     assert.equal(state.writes.length, 1);
     assert.equal(state.writes[0].program, 'WoW');
@@ -70,8 +65,8 @@ test('Logon publishes its challenge after atomic ticket creation and closes its 
 
 test('Logon propagates read, write, and channel rejection as an RPC error', async t => {
     for (const fail of ['read', 'write', 'channel']) {
-        await t.test(fail, async t => {
-            const state = setup(t, { fail });
+        await t.test(fail, async () => {
+            const state = setup({ fail });
             await assert.rejects(state.service.Logon({ queueName: 'client', request: { program: 'WoW', platform: 'Win' } }), error => error === 1);
             assert.equal(state.messages.length, 0);
         });
@@ -81,8 +76,8 @@ test('Logon propagates read, write, and channel rejection as an RPC error', asyn
 test('web credentials emit exactly one callback for success, missing identity, and dependency failure', async t => {
     for (const [options, status] of [[{}, 0], [{ missingAccount: true }, 0xA], [{ program: 'Other' }, 0xC],
         [{ fail: 'read' }, 1], [{ fail: 'program' }, 1], [{ fail: 'mysql' }, 1]]) {
-        await t.test(JSON.stringify(options), async t => {
-            const state = setup(t, options);
+        await t.test(JSON.stringify(options), async () => {
+            const state = setup(options);
             assert.equal(await state.service.VerifyWebCredential({ queueName: 'client', request: { webCredentials: Buffer.from('ticket') } }), 0);
             assert.equal(state.messages.length, 1);
             assert.equal(state.messages[0][2].headers.methodId, 5);

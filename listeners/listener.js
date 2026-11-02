@@ -9,7 +9,8 @@ const loadProto = require('../utils/protobuf');
 const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
 
 class Listener {
-    constructor(name, file) {
+    constructor(name, file, amqpConnection) {
+        this.amqpConnection = amqpConnection;
         this.hash = 0;
         this.name = name;
         this.amqpChannel = undefined;
@@ -21,10 +22,10 @@ class Listener {
         this.methods = service.methodsArray;
 
         let hash = new FNV();
-        hash.update(service.getOption('(.bgs.protocol.service_options).descriptor_name'));
+        hash.update(service.getOption('(bgs.protocol.service_options).descriptor_name'));
         this.hash = parseInt(hash.digest('hex'), 16);
 
-        this.channelReady = global.amqpConnection.createChannel().
+        this.channelReady = this.amqpConnection.createChannel().
         then((channel) => {
             this.amqpChannel = channel;
         });
@@ -51,7 +52,7 @@ class Listener {
         let requestBuffer = requestType.encode(request).finish();
         let header = Header.create();
         header.serviceHash = this.hash;
-        header.methodId = method.getOption('(.bgs.protocol.method_options).id');
+        header.methodId = method.getOption('(bgs.protocol.method_options).id');
         header.size = requestBuffer.length;
         header.status = 0;
 

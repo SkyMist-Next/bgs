@@ -12,8 +12,12 @@ const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const ProcessId = rootNamespace.lookupType('bgs.protocol.ProcessId');
 
 class ConnectionService extends Service {
-    constructor() {
-        super('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto');
+    constructor({ logger, store, amqpConnection, isAccepting = () => store.healthy }) {
+        super('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto', { logger });
+        this.store = store;
+        this.amqpConnection = amqpConnection;
+        this.isAccepting = isAccepting;
+        this.closing = new Set();
 
         this.connections = [];
         this.pending = new Set();
@@ -25,19 +29,25 @@ class ConnectionService extends Service {
     }
 
     Connect(context) {
-        return global.amqpConnection.createChannel().
-        then((channel) => {
-            context.connection.setAmqpChannel(channel);
+        return this.amqpConnection.createChannel().
+        then(async (channel) => {
+            if (context.connection.setAmqpChannel(channel) === false) {
+                await context.connection.disconnect();
+                throw new Error('Client disconnected during channel startup');
+            }
             return Promise.resolve(channel);
         }).
         then((channel) => {
+            if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
             return channel.assertQueue('', {autoDelete: true});
         }).
         then((result) => {
+            if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
             context.connection.setAmqpQueueName(result.queue);
             return context.connection.setupConsumer();
         }).
         then(async ()=> {
+            if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
             if(context.request.clientId !== null) {
                 context.connection.setClientId(context.request.clientId);
                 context.response.clientId = context.request.clientId;
@@ -48,7 +58,7 @@ class ConnectionService extends Service {
             }
 
             if (context.connection.getBindlessRPC()) {
-                const services = await global.store.listMetadata('/aurora/services/');
+                const services = await this.store.listMetadata('/aurora/services/');
                 for (const [path, value] of Object.entries(services)) {
                     if (/^\/aurora\/services\/[^/]+\/hash$/.test(path)) {
                         const hash = Number(value);
@@ -85,46 +95,60 @@ class ConnectionService extends Service {
                 return Promise.reject(error);
             }
             else {
-                global.logger.error(error);
+                this.logger.error(error);
                 return Promise.reject(0x1); //fill with error
             }
         });
     }
 
     KeepAlive() {
-        global.logger.debug('Received KeepAlive on connection');
+        this.logger.debug('Received KeepAlive on connection');
 
         return Promise.resolve(0);
     }
 
     RequestDisconnect(context) {
-        global.logger.debug('Client requested disconnect with code: '+context.request.errorCode);
+        this.logger.debug('Client requested disconnect with code: '+context.request.errorCode);
         context.connection.disconnect();
 
         return Promise.resolve(0);
     }
 
+    stopAccepting() { this.stopping = true; }
+
     async drain() {
-        this.stopping = true;
-        this.connections.forEach(connection => connection.socket.pause());
-        while (this.pending.size || this.connections.some(connection => connection.inFlight || connection.socket.writableLength)) {
-            await new Promise(resolve => setTimeout(resolve, 20));
+        this.stopAccepting();
+        while (!this.forced && (this.pending.size || this.connections.some(connection =>
+            !connection.disconnected && (connection.inFlight || connection.output.size || connection.brokerOutput.size || connection.socket.writableLength)))) {
+            await new Promise(resolve => setTimeout(resolve, 10));
         }
-        this.closeAllConnections();
+        await this.closeAllConnections();
+        while (this.closing.size) { await Promise.allSettled([...this.closing]); }
+    }
+
+    forceClose() {
+        this.forced = true;
+        return this.closeAllConnections();
     }
 
     closeAllConnections() {
-        this.connections.forEach((connection) => {
-            connection.disconnect();
-        });
+        return Promise.allSettled(this.connections.map(connection => connection.disconnect()));
     }
 
     onNewConnection(socket) {
-        global.logger.debug('Received new connection from: ' + socket.remoteAddress);
+        this.logger.debug('Received new connection from: ' + socket.remoteAddress);
 
-        if (this.stopping || !global.store.healthy) { socket.destroy(); return; }
-        let connection = new Connection(socket);
-        socket.once('close', () => { this.connections = this.connections.filter(item => item !== connection); });
+        if (this.stopping || !this.isAccepting()) { socket.destroy(); return; }
+        let connection = new Connection(socket, {
+            logger: this.logger, serviceHash: this.getServiceHash(), serviceName: this.getServiceName(),
+            onMessage: this.onMessage.bind(this), isAccepting: () => !this.stopping && this.isAccepting()
+        });
+        socket.once('close', () => {
+            const closing = connection.disconnect();
+            this.closing.add(closing);
+            closing.finally(() => this.closing.delete(closing));
+            this.connections = this.connections.filter(item => item !== connection);
+        });
 
         this.connections.push(connection);
     }
@@ -137,11 +161,13 @@ class ConnectionService extends Service {
             response: null
         };
 
-        const call = this.handleCall(context, payload).then(buffer => connection.writeBuffer(buffer));
+        const operation = this.pending.size < 1024 && !this.stopping && this.isAccepting()
+            ? this.handleCall(context, payload) : this.sendError(context, 1);
+        const call = operation.then(buffer => connection.writeBuffer(buffer));
         this.pending.add(call);
         call.then(() => this.pending.delete(call), error => {
             this.pending.delete(call);
-            global.logger.error(error);
+            this.logger.error(error);
             connection.disconnect();
         });
     }

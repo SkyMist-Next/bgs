@@ -11,13 +11,14 @@ module.exports = [
     {
         languageOptions: { ecmaVersion: 2026, sourceType: 'commonjs' },
         rules: {
+            'no-restricted-globals': ['error', 'global', 'globalThis'],
             'n/exports-style': ['error', 'module.exports'],
             // This application is deployed as a container, not published to npm.
             'n/no-unpublished-require': 'off'
         }
     },
     {
-        files: ['frontend.js', 'server.js', 'rest.js', 'utils/lifecycle.js'],
+        files: ['frontend.js', 'server.js', 'rest.js', 'servers/cli.js'],
         rules: { 'n/no-process-exit': 'off' } // Preserve fatal startup/rejection handling.
     }
 ];

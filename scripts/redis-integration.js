@@ -10,7 +10,7 @@ const { performance, monitorEventLoopDelay } = require('node:perf_hooks');
 const { createClient } = require('redis');
 const { RedisStore, LOGIN_PREFIX } = require('../utils/redis-store');
 const createRestApp = require('../utils/rest-app');
-const { readiness } = require('../utils/lifecycle');
+const { readiness } = require('../utils/dependency-probe');
 const execute = promisify(execFile);
 const docker = async (...args) => (await execute('docker', args, { timeout: 60000 })).stdout.trim();
 const image = process.env.REDIS_TEST_IMAGE || 'redis@sha256:2838d5524559494f6f1cd66e97e76b200d64a633a8614200620755ed395daf32';

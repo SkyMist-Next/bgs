@@ -16,17 +16,33 @@ const rounded = value => Math.round(value * 100) / 100;
 
 async function serve(mode) {
     const hash = await bcrypt.hash('benchmark-password', rounds);
-    const app = createRestApp({
+    const dependencies = {
         models: { Account: { findOne: async () => ({ id: '9007199254740993', hash }) } },
         store: {
             getLoginTicket: async () => ({ ticket: 'benchmark-ticket', program: 'WoW' }),
             authorizeLoginTicket: async () => {}
         },
-        logger: { info() {}, error() {} }, isReady: () => true,
+        logger: { info() {}, debug() {}, error() {} }, isReady: () => true,
         compare: mode === 'sync-baseline' ? (password, stored) => bcrypt.compareSync(password, stored) : bcrypt.compare
-    });
-    const server = app.listen(0, '127.0.0.1');
-    await once(server, 'listening');
+    };
+    let runtime;
+    let server;
+    if (mode === 'networking') {
+        runtime = require('../rest').createServer({
+            config: { environment: 'test', host: '127.0.0.1', port: 0 }, logger: dependencies.logger,
+            factories: {
+                database: () => ({ ...dependencies.models, sequelize: { authenticate: async () => {}, close: async () => {} } }),
+                store: () => ({ ...dependencies.store, healthy: true, connect: async () => {}, ping: async () => {}, close: async () => {}, destroy: async () => {} }),
+                compare: dependencies.compare
+            }
+        });
+        await runtime.start();
+        server = runtime.listener;
+    }
+    else {
+        server = createRestApp(dependencies).listen(0, '127.0.0.1');
+        await once(server, 'listening');
+    }
     const loop = monitorEventLoopDelay({ resolution: 10 });
     loop.enable();
     const cpu = process.cpuUsage();
@@ -39,8 +55,11 @@ async function serve(mode) {
             peakRssMiB: rounded(process.resourceUsage().maxRSS / 1024),
             eventLoopP99Ms: rounded(loop.percentile(99) / 1e6)
         });
-        server.closeAllConnections();
-        await new Promise(resolve => server.close(resolve));
+        if (runtime) { await runtime.stop(); }
+        else {
+            server.closeAllConnections();
+            await new Promise(resolve => server.close(resolve));
+        }
         process.disconnect();
     });
 }
@@ -111,7 +130,7 @@ async function main() {
     else {
         console.log(JSON.stringify({ node: process.version, platform: process.platform, arch: process.arch,
             uvThreadpoolSize: process.env.UV_THREADPOOL_SIZE || '4 (default)' }));
-        for (const mode of ['sync-baseline', 'async']) {
+        for (const mode of ['sync-baseline', 'async', 'networking']) {
             console.log(JSON.stringify(await measure(mode)));
         }
     }

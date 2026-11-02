@@ -6,11 +6,6 @@ const loadProto = require('../utils/protobuf');
 const Service = require('../services/service');
 const ConnectionService = require('../services/connection');
 const Listener = require('../listeners/listener');
-function mockGlobal(t, name, { value }) {
-    const previous = global[name];
-    global[name] = value;
-    t.after(() => { global[name] = previous; });
-}
 
 const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
 
@@ -23,10 +18,10 @@ test('BGS service hashes and active method IDs remain fixed', () => {
         ['AuthenticationListener', 'authentication', 0x71240e35, { OnLogonComplete: 5 }],
         ['ChallengeListener', 'challenge', 0xbbda171f, { OnExternalChallenge: 3 }]
     ]) {
-        const service = new Service(name, `proto/bgs/low/pb/client/${file}_service.proto`);
+        const service = new Service(name, `proto/bgs/low/pb/client/${file}_service.proto`, { logger: { error() {} } });
         assert.equal(service.getServiceHash(), hash);
         for (const [methodName, id] of Object.entries(methods)) {
-            assert.equal(service.methods.find(method => method.name === methodName).getOption('(.bgs.protocol.method_options).id'), id);
+            assert.equal(service.methods.find(method => method.name === methodName).getOption('(bgs.protocol.method_options).id'), id);
         }
     }
 });
@@ -40,9 +35,9 @@ test('header fixture preserves uint64 IDs, fixed32 hashes, and exact bytes', () 
     assert.deepEqual(Header.encode(header).finish(), fixture);
 });
 
-test('RPC framing preserves fixed64 payloads and handles synchronous/rejected errors', async t => {
-    mockGlobal(t, 'logger', { value: { error() {} } });
-    const service = new Service('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto');
+test('RPC framing preserves fixed64 payloads and handles synchronous/rejected errors', async () => {
+    const logger = { error() {} };
+    const service = new Service('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto', { logger });
     service.registerHandler('Echo', async context => {
         context.response.time = context.request.time;
         return 0;
@@ -63,13 +58,13 @@ test('RPC framing preserves fixed64 payloads and handles synchronous/rejected er
     assert.equal(Header.decode(malformed.subarray(2)).status, 0xBC5);
 });
 
-test('Connect returns epoch microseconds from the native addon', async t => {
-    mockGlobal(t, 'amqpConnection', { value: {
+test('Connect returns epoch microseconds from the native addon', async () => {
+    const amqpConnection = {
         createChannel: async () => ({ assertQueue: async () => ({ queue: 'client' }) })
-    } });
-    mockGlobal(t, 'store', { value: { listMetadata: async () => ({}) } });
-    mockGlobal(t, 'logger', { value: { error() {} } });
-    const service = new ConnectionService();
+    };
+    const store = { listMetadata: async () => ({}) };
+    const logger = { error() {} };
+    const service = new ConnectionService({ logger, store, amqpConnection });
     const responseType = service.rootNamespace.lookupType('bgs.protocol.connection.v1.ConnectResponse');
     const context = {
         request: { clientId: null, useBindlessRpc: true }, response: responseType.create(),
@@ -86,11 +81,11 @@ test('Connect returns epoch microseconds from the native addon', async t => {
     assert.equal(decoded.serverTime.toString(), String(context.response.serverTime));
 });
 
-test('listener waits for AMQP channel creation and preserves callback IDs', async t => {
+test('listener waits for AMQP channel creation and preserves callback IDs', async () => {
     let open;
     const sent = [];
-    mockGlobal(t, 'amqpConnection', { value: { createChannel: () => new Promise(resolve => { open = resolve; }) } });
-    const listener = new Listener('ChallengeListener', 'proto/bgs/low/pb/client/challenge_service.proto');
+    const amqpConnection = { createChannel: () => new Promise(resolve => { open = resolve; }) };
+    const listener = new Listener('ChallengeListener', 'proto/bgs/low/pb/client/challenge_service.proto', amqpConnection);
     listener.setClientQueueName('client');
     const call = listener.call('OnExternalChallenge', request => {
         request.payloadType = 'web_auth_url';
@@ -105,12 +100,12 @@ test('listener waits for AMQP channel creation and preserves callback IDs', asyn
     await listener.destroy();
 });
 
-test('Connect waits for service discovery and propagates discovery rejection', async t => {
-    mockGlobal(t, 'amqpConnection', { value: { createChannel: async () => ({ assertQueue: async () => ({ queue: 'client' }) }) } });
-    mockGlobal(t, 'logger', { value: { error() {} } });
+test('Connect waits for service discovery and propagates discovery rejection', async () => {
+    const amqpConnection = { createChannel: async () => ({ assertQueue: async () => ({ queue: 'client' }) }) };
+    const logger = { error() {} };
     let resolveDiscovery;
-    mockGlobal(t, 'store', { value: { listMetadata: () => new Promise(resolve => { resolveDiscovery = resolve; }) } });
-    const service = new ConnectionService();
+    const store = { listMetadata: () => new Promise(resolve => { resolveDiscovery = resolve; }) };
+    const service = new ConnectionService({ logger, store, amqpConnection });
     const responseType = service.rootNamespace.lookupType('bgs.protocol.connection.v1.ConnectResponse');
     const hashes = [];
     const context = () => ({ request: { clientId: null, useBindlessRpc: true }, response: responseType.create(), connection: {
@@ -124,6 +119,6 @@ test('Connect waits for service discovery and propagates discovery rejection', a
     resolveDiscovery({ '/aurora/services/AuthenticationService/hash': '233634817', '/aurora/services/not-a-hash': 'ignored' });
     await call;
     assert.deepEqual(hashes, [233634817]);
-    global.store.listMetadata = async () => { throw new Error('Redis unavailable'); };
+    store.listMetadata = async () => { throw new Error('Redis unavailable'); };
     await assert.rejects(service.Connect(context()), error => error === 1);
 });

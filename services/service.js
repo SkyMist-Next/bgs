@@ -9,7 +9,8 @@ const loadProto = require('../utils/protobuf');
 const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
 
 class Service {
-    constructor(name, file) {
+    constructor(name, file, { logger }) {
+        this.logger = logger;
         this.hash = 0;
         this.name = name;
         this.methods = [];
@@ -21,7 +22,7 @@ class Service {
         this.methods = service.methodsArray;
 
         let hash = new FNV();
-        hash.update(service.getOption('(.bgs.protocol.service_options).descriptor_name'));
+        hash.update(service.getOption('(bgs.protocol.service_options).descriptor_name'));
         this.hash = parseInt(hash.digest('hex'), 16);
     }
 
@@ -36,7 +37,7 @@ class Service {
     registerHandler(name, handler) {
         this.methods.forEach((method) => {
             if (Object.hasOwn(method, 'name') && method.name === name) {
-                this.handlers[method.getOption('(.bgs.protocol.method_options).id')] = handler;
+                this.handlers[method.getOption('(bgs.protocol.method_options).id')] = handler;
             }
         });
     }
@@ -48,7 +49,7 @@ class Service {
                 errorHeader.status = error;
             }
             else {
-                global.logger.error(error);
+                this.logger.error(error);
                 errorHeader.status = 0x00000001;
             }
 
@@ -64,7 +65,7 @@ class Service {
     handleCall(context, payload) {
         if (this.handlers[context.header.methodId] !== undefined) {
             let method = this.methods.find((element) => {
-                return element.getOption('(.bgs.protocol.method_options).id') === context.header.methodId;
+                return element.getOption('(bgs.protocol.method_options).id') === context.header.methodId;
             });
 
             let responseType = this.rootNamespace.lookupType(method.responseType);
@@ -78,7 +79,7 @@ class Service {
                 }
             }
             catch (error) {
-                global.logger.error(error);
+                this.logger.error(error);
                 return this.sendError(context, 0x00000BC5); //ERROR_RPC_MALFORMED_REQUEST
             }
 
