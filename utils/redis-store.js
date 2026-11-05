@@ -4,20 +4,10 @@ const fs = require('node:fs');
 const { setTimeout: delay } = require('node:timers/promises');
 const { createSentinel } = require('redis');
 const { deadline: withDeadline } = require('./deadline');
+const { watched } = require('./redis-transaction');
 
 const METADATA = '/aurora/metadata';
 const LOGIN_PREFIX = '/aurora/services/AuthenticationService/loginTickets/';
-const CREATE_LOGIN = `
-if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
-redis.call('HSET', KEYS[1], 'ticket', ARGV[1], 'program', ARGV[2], 'connectionId', ARGV[3], 'address', ARGV[4], 'applicationVersion', ARGV[5])
-redis.call('EXPIRE', KEYS[1], 300)
-return 1`;
-const AUTHORIZE_LOGIN = `
-if redis.call('PTTL', KEYS[1]) <= 0 then return 0 end
-local account = redis.call('HGET', KEYS[1], 'accountId')
-if account and account ~= ARGV[1] then return 0 end
-redis.call('HSET', KEYS[1], 'accountId', ARGV[1])
-return 1`;
 
 function tlsOptions(env, prefix) {
     const enabled = env[prefix + '_TLS'];
@@ -53,7 +43,7 @@ function configuration(env = process.env) {
     return {
         name: env.REDIS_MASTER_NAME,
         sentinelRootNodes: nodes.map(({ host, port }) => ({ host, port })),
-        masterPoolSize: 1, replicaPoolSize: 0, reserveClient: true,
+        masterPoolSize: 5, replicaPoolSize: 0, reserveClient: true,
         maxCommandRediscovers: 0, scanInterval: 30000, passthroughClientErrorEvents: true,
         commandOptions: { timeout: 2000 },
         nodeClientOptions: { ...common, database, username: env.REDIS_USERNAME, password: env.REDIS_PASSWORD,
@@ -77,6 +67,8 @@ class RedisStore {
         this.generation = 0;
         this.healthy = false;
         this.closing = false;
+        this.transactionClients = [];
+        this.transactionWaiters = [];
         // Sentinel seed failures do not establish primary failure; PING owns health.
         // An error listener is still required, and must never log connection credentials.
         this.client.on('error', () => {});
@@ -235,6 +227,49 @@ class RedisStore {
         return JSON.parse(value);
     }
     setJSON(path, value) { return this.run(client => client.set(path, JSON.stringify(value))); }
+    transaction(keys, decide) {
+        const deadline = Date.now() + this.operationTimeout;
+        return this.run(sentinel => this.transactionClient(sentinel.commandOptions, client => watched(client, keys, decide, deadline)));
+    }
+    async initializeTransactionClients() {
+        const leases = [];
+        try {
+            // Acquire once: constructing the Sentinel command facade for every
+            // transaction is expensive. These four connections stay exclusive.
+            for (let i = 0; i < 4; i++) { leases.push(await this.client.acquire()); }
+            if (this.closing) { throw new Error('Redis store closing'); }
+            this.transactionClients.push(...leases);
+            return leases;
+        } catch (error) {
+            await Promise.allSettled(leases.map(client => client.release()));
+            throw error;
+        }
+    }
+    async transactionClient(options, operation) {
+        if (!this.transactionPoolTask) {
+            const task = this.initializeTransactionClients();
+            this.transactionPoolTask = task;
+            void task.catch(() => { if (this.transactionPoolTask === task) { this.transactionPoolTask = undefined; } });
+        }
+        const task = this.transactionPoolTask;
+        await task;
+        const client = this.transactionClients.shift() || await new Promise(resolve => this.transactionWaiters.push(resolve));
+        try {
+            if (this.closing) { throw new Error('Redis store closing'); }
+            options?.abortSignal?.throwIfAborted();
+            return await operation(client.withCommandOptions(options));
+        } finally {
+            const waiter = this.transactionWaiters.shift();
+            if (waiter) { waiter(client); }
+            else { this.transactionClients.push(client); }
+        }
+    }
+    async releaseTransactionClients() {
+        if (!this.transactionPoolTask) { return; }
+        const clients = await this.transactionPoolTask.catch(() => []);
+        this.transactionPoolTask = undefined;
+        await Promise.allSettled(clients.map(client => client.release()));
+    }
     setConnectionIdentity(id, value) {
         return this.run(client => client.set('/aurora/connections/' + id, JSON.stringify(value), { EX: 300 }));
     }
@@ -243,32 +278,41 @@ class RedisStore {
         return value ? JSON.parse(value) : null;
     }
     async createLoginTicket(ticket, program, identity = {}) {
-        const result = await this.run(client => client.eval(CREATE_LOGIN, {
-            keys: [LOGIN_PREFIX + ticket], arguments: [ticket, program, identity.connectionId || '', identity.address || '', String(identity.applicationVersion || '')]
-        }));
-        if (result !== 1) { throw new Error('Login ticket already exists'); }
+        const key = LOGIN_PREFIX + ticket;
+        await this.transaction([key], async client => {
+            if (await client.exists(key)) { throw new Error('Login ticket already exists'); }
+            return { commands: [
+                ['HSET', key, 'ticket', ticket, 'program', program, 'connectionId', identity.connectionId || '', 'address', identity.address || '', 'applicationVersion', String(identity.applicationVersion || '')],
+                ['EXPIRE', key, '300']
+            ] };
+        });
     }
     async getLoginTicket(ticket) {
         const fields = await this.run(client => client.hGetAll(LOGIN_PREFIX + ticket));
         return fields.ticket && fields.program ? fields : null;
     }
     async authorizeLoginTicket(ticket, accountId) {
-        const result = await this.run(client => client.eval(AUTHORIZE_LOGIN, {
-            keys: [LOGIN_PREFIX + ticket], arguments: [String(accountId)]
-        }));
-        if (result !== 1) { throw new Error('Expired or conflicting login ticket'); }
+        const key = LOGIN_PREFIX + ticket;
+        await this.transaction([key], async client => {
+            if (await client.pTTL(key) <= 0) { throw new Error('Expired or conflicting login ticket'); }
+            const account = await client.hGet(key, 'accountId');
+            if (account && account !== String(accountId)) { throw new Error('Expired or conflicting login ticket'); }
+            return { commands: [['HSET', key, 'accountId', String(accountId)]] };
+        });
     }
     async close() {
         this.closing = true;
         this.healthy = false;
         clearTimeout(this.monitorTimer);
         await this.client.close();
+        await this.releaseTransactionClients();
     }
     async destroy() {
         this.closing = true;
         this.healthy = false;
         clearTimeout(this.monitorTimer);
         await this.client.destroy();
+        await this.releaseTransactionClients();
     }
 }
 

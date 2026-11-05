@@ -139,3 +139,49 @@ test('a Redis connection completing after shutdown is destroyed and cannot start
     assert.equal(store.healthy, false);
     assert.equal(store.monitorTimer, undefined);
 });
+
+test('transaction leases stay exclusive until an operation actually settles', async () => {
+    const { client, store } = setup({ operationTimeout: 20 });
+    client.withCommandOptions = options => ({ commandOptions: options });
+    const leases = [];
+    const release = [];
+    client.acquire = async () => {
+        const lease = { withCommandOptions: () => lease, release: async () => { lease.released = true; } };
+        leases.push(lease);
+        return lease;
+    };
+    const active = new Set();
+    const operation = () => store.run(sentinel => store.transactionClient(sentinel.commandOptions, lease => {
+        assert.equal(active.has(lease), false);
+        active.add(lease);
+        return new Promise(resolve => release.push(() => { active.delete(lease); resolve(); }));
+    }));
+    const tasks = Array.from({ length: 5 }, () => assert.rejects(operation(), /timed out/));
+    await Promise.all(tasks);
+    assert.equal(leases.length, 4);
+    assert.equal(active.size, 4);
+    assert.equal(store.pending, 5);
+    for (const finish of release) { finish(); }
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(store.pending, 0);
+    assert.equal(release.length, 4); // The queued, aborted operation never starts.
+    await store.destroy();
+    assert.ok(leases.every(lease => lease.released));
+});
+
+test('failed transaction pool initialization releases partial leases and can recover', async () => {
+    const { client, store } = setup();
+    let acquired = 0;
+    let released = 0;
+    client.acquire = async () => {
+        if (++acquired === 3) { throw new Error('primary changed'); }
+        const lease = { withCommandOptions: () => lease, release: async () => { released++; } };
+        return lease;
+    };
+    await assert.rejects(store.transactionClient({}, async () => {}), /primary changed/);
+    assert.equal(released, 2);
+    await store.transactionClient({}, async () => {});
+    assert.equal(acquired, 7);
+    await store.close();
+    assert.equal(released, 6);
+});

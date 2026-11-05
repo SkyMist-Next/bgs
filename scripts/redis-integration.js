@@ -9,6 +9,8 @@ const { setTimeout: delay } = require('node:timers/promises');
 const { performance, monitorEventLoopDelay } = require('node:perf_hooks');
 const { createClient } = require('redis');
 const { RedisStore, LOGIN_PREFIX } = require('../utils/redis-store');
+const { Sessions, ticketKey } = require('../realm/sessions');
+const { randomUUID, randomBytes } = require('node:crypto');
 const createRestApp = require('../utils/rest-app');
 const { readiness } = require('../utils/dependency-probe');
 const execute = promisify(execFile);
@@ -93,6 +95,16 @@ async function main() {
         await store.connect();
     }
     const [first, second] = stores;
+    const sessionServices = [new Sessions(first), new Sessions(second)];
+    const realmOwner = { version: 1, namespace: 'test', realm_uid: randomUUID(), pod_uid: randomUUID(), instance_id: randomUUID(),
+        session_id: randomUUID(), game_account_id: '9007199254740997', account_id: '9007199254740993', generation: '0', build: 22900, expansion: 6, address: '127.0.0.1' };
+    const realmTicket = randomBytes(20).toString('hex');
+    await sessionServices[0].issue(realmTicket, { ...realmOwner, account_id: '9007199254740993' });
+    const realmRecord = JSON.stringify(await first.getJSON(ticketKey(realmOwner.realm_uid, realmTicket)));
+    const attempts = await Promise.allSettled(sessionServices.map(service => service.claim(realmTicket, realmRecord, { ...realmOwner, session_id: randomUUID() })));
+    assert.equal(attempts.filter(attempt => attempt.status === 'fulfilled').length, 1, attempts.map(attempt => attempt.reason?.message).join('; '));
+    Object.assign(realmOwner, attempts.find(attempt => attempt.status === 'fulfilled').value);
+    await sessionServices[0].update(realmOwner, 'release');
     const direct = createClient({ socket: { host: primary.ip }, password: env.REDIS_PASSWORD, disableOfflineQueue: true });
     direct.on('error', () => {});
     clients.push(direct);
