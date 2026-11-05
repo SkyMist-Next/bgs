@@ -6,6 +6,11 @@ const defineGameAccount = require('../models/gameaccount');
 
 module.exports = function createDatabase(config, logger, environment = process.env) {
     const options = { ...config, timezone: '+00:00', logging: message => logger.debug(message) };
+    if (options.dialect === 'mysql') {
+        // Keep JSON text and BIGINT values lossless across MySQL's JSON type
+        // and MariaDB's JSON alias, including JSON string primitives.
+        options.dialectOptions = { ...options.dialectOptions, supportBigNumbers: true, bigNumberStrings: true, jsonStrings: true };
+    }
     delete options.syncOnStart;
     const variable = config.use_env_variable || config.use_env_letiable;
     const sequelize = variable
@@ -15,7 +20,8 @@ module.exports = function createDatabase(config, logger, environment = process.e
         Account: defineAccount(sequelize, Sequelize.DataTypes),
         GameAccount: defineGameAccount(sequelize, Sequelize.DataTypes),
         IPBan: require('../models/ipban')(sequelize, Sequelize.DataTypes),
-        GameAccountPrivilege: require('../models/gameaccountprivilege')(sequelize, Sequelize.DataTypes)
+        GameAccountPrivilege: require('../models/gameaccountprivilege')(sequelize, Sequelize.DataTypes),
+        ...require('../models/realmgameplay')(sequelize, Sequelize.DataTypes)
     };
     for (const model of Object.values(db)) {
         model.associate?.(db);

@@ -92,8 +92,8 @@ class RpcClient {
     close() { this.socket.destroy(); }
 }
 
-async function connect(ca) {
-    const socket = tls.connect({ host: '127.0.0.1', port: 1119, servername: 'bgs.local', ca, rejectUnauthorized: true });
+async function connect(ca, { host = '127.0.0.1', port = 1119, servername = 'bgs.local' } = {}) {
+    const socket = tls.connect({ host, port, servername, ca, rejectUnauthorized: true });
     const client = new RpcClient(socket);
     const timer = setTimeout(() => socket.destroy(new Error('TLS connection timeout')), 10000);
     try { await once(socket, 'secureConnect'); return client; }

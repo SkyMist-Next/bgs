@@ -33,6 +33,11 @@ module.exports = (sequelize, DataTypes) => {
                 return id;
             }
         },
+        hooks: {
+            beforeUpdate(instance) {
+                if (instance.changed('expansion')) { throw new Error('GameAccount expansion is immutable'); }
+            }
+        },
         timestamps: true,
         underscored: true,
         tableName: 'game_accounts'

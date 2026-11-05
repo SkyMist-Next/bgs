@@ -18,9 +18,9 @@ function banned(record, now = Date.now()) {
     return Boolean(record?.isBanned && (!record.banExpiresAt || new Date(record.banExpiresAt).getTime() > now));
 }
 function blocked(record, now = Date.now()) { return !record || Boolean(record.isSuspended) || banned(record, now); }
-async function checkIP(models, address, now = Date.now()) {
+async function checkIP(models, address, now = Date.now(), options = {}) {
     if (!models.ipBansEnabled) { return; }
-    const row = await models.IPBan.findOne({ where: { address: canonicalIP(address) } });
+    const row = await models.IPBan.findOne({ ...options, where: { address: canonicalIP(address) } });
     if (row && (!row.expiresAt || new Date(row.expiresAt).getTime() > now)) { throw 0xA; }
 }
 async function principal(models, store, context) {
@@ -39,13 +39,13 @@ async function gameAccount(models, owner, id) {
     if (blocked(account) || String(account.accountId) !== owner.accountId) { throw 0xA; }
     return account;
 }
-async function privilege(models, id, realmUid) {
+async function privilege(models, id, realmUid, options = {}) {
     // Presence of an override (including zero) wins over the global row.
     if (realmUid) {
-        const override = await models.GameAccountPrivilege.findOne({ where: { gameAccountId: id, realmUid } });
+        const override = await models.GameAccountPrivilege.findOne({ ...options, where: { gameAccountId: id, realmUid } });
         if (override) { return override.level; }
     }
-    const global = await models.GameAccountPrivilege.findOne({ where: { gameAccountId: id, realmUid: '' } });
+    const global = await models.GameAccountPrivilege.findOne({ ...options, where: { gameAccountId: id, realmUid: '' } });
     return global?.level ?? 0;
 }
 module.exports = { privilege, canonicalIP, trustedPeer, banned, blocked, checkIP, principal, gameAccount };
