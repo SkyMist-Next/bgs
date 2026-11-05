@@ -4,6 +4,8 @@ const { waitForDrain } = require('./utils/backpressure');
 
 const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const Header = rootNamespace.lookupType('bgs.protocol.Header');
+const MAX_HEADER = 1024;
+const MAX_FRAME = 1024 * 1024;
 
 module.exports = class Connection {
     constructor(socket, { logger, serviceHash, serviceName, onMessage, isAccepting = () => true }){
@@ -22,6 +24,7 @@ module.exports = class Connection {
         this.requestToken = 0;
         this.requests = [];
         this.inFlight = 0;
+        this.resetInput();
         this.importedServices = {};
         this.exportedServices = [];
         this.clientId = undefined;
@@ -156,68 +159,97 @@ module.exports = class Connection {
         this.importedServices[boundService.hash] = boundService.id;
     }
 
-    onData(data)  {
-        if (this.disconnected) { return; }
-        let bytesRead = data.length;
+    resetInput() {
+        this.input = Buffer.allocUnsafe(2);
+        this.inputOffset = 0;
+        this.inputHeader = null;
+        this.inputStage = 'prefix';
+    }
 
-        if (bytesRead >= 2) {
-            const headerSize = data.readUInt16BE(0);
-            bytesRead -= 2;
-
-            if (bytesRead >= headerSize) {
-                const header = Header.decode(data.slice(2, 2+headerSize));
-
-                if (header.serviceId === 0xFE) {
-                    let responseHash = header.serviceHash;
-
-                    if (!this.bindless) {
-                        responseHash = this.importedServices[this.requests[header.token]];
-                    }
-
-                    this.logger.debug('Received response on service: '+responseHash+' with methodId: '+header.methodId);
-
-                    this.publish('battlenet_aurora_bus', responseHash.toString(), data.slice(2+headerSize),
-                        {
-                            headers: header,
-                            requestId: this.requests[header.token],
-                            type: 'response'
-                        });
+    onData(data) {
+        let offset = 0;
+        while (offset < data.length && !this.disconnected) {
+            const count = Math.min(data.length - offset, this.input.length - this.inputOffset);
+            data.copy(this.input, this.inputOffset, offset, offset + count);
+            offset += count;
+            this.inputOffset += count;
+            if (this.inputOffset < this.input.length) { return; }
+            if (this.inputStage === 'prefix') {
+                const size = this.input.readUInt16BE(0);
+                if (!size || size > MAX_HEADER) { throw new Error('Invalid RPC header size'); }
+                this.input = Buffer.allocUnsafe(size);
+                this.inputOffset = 0;
+                this.inputStage = 'header';
+                continue;
+            }
+            if (this.inputStage === 'header') {
+                const headerSize = this.input.length;
+                this.inputHeader = Header.decode(this.input);
+                const size = this.inputHeader.size;
+                if (!Number.isInteger(size) || size < 0 || size > MAX_FRAME - 2 - headerSize) {
+                    throw new Error('Invalid RPC payload size');
                 }
-                else {
-                    this.logger.debug('Received request on service: '+header.serviceHash+' with methodId: '+header.methodId);
+                this.input = Buffer.allocUnsafe(size);
+                this.inputOffset = 0;
+                this.inputStage = 'payload';
+                if (size) { continue; }
+            }
+            const header = this.inputHeader, payload = this.input;
+            this.resetInput();
+            this.handleFrame(header, payload);
+        }
+    }
 
-                    let requestHash = header.serviceHash;
+    handleFrame(header, payload) {
+        if (header.serviceId === 0xFE) {
+            let responseHash = header.serviceHash;
 
-                    if (!this.bindless) {
-                        requestHash = this.exportedServices[header.serviceId];
-                    }
+            if (!this.bindless) {
+                responseHash = this.importedServices[this.requests[header.token]];
+            }
 
-                    if (!this.isAccepting() || this.inFlight >= 128) {
-                        const response = Header.fromObject({ ...Header.toObject(header), serviceId: 0xFE, status: 1, size: 0 });
-                        const encoded = Header.encode(response).finish();
-                        const rejected = Buffer.alloc(2 + encoded.length);
-                        rejected.writeUInt16BE(encoded.length);
-                        encoded.copy(rejected, 2);
-                        void this.writeBuffer(rejected);
-                        return;
-                    }
-                    if (requestHash === this.serviceHash) {
-                        this.onMessage(header, data.slice(2+headerSize), this);
-                    }
-                    else if (requestHash) {
-                        this.inFlight++;
-                        this.publish('battlenet_aurora_bus', requestHash.toString(), data.slice(2+headerSize),
-                            {
-                                headers: { ...Header.toObject(header), identity: this.identity },
-                                replyTo: this.queueName,
-                                appId: this.serviceName,
-                                type: 'request'
-                            });
-                    }
-                    else {
-                        //send error ERROR_RPC_INVALID_SERVICE
-                    }
-                }
+            this.logger.debug('Received response on service: '+responseHash+' with methodId: '+header.methodId);
+
+            this.publish('battlenet_aurora_bus', responseHash.toString(), payload,
+                {
+                    headers: header,
+                    requestId: this.requests[header.token],
+                    type: 'response'
+                });
+        }
+        else {
+            this.logger.debug('Received request on service: '+header.serviceHash+' with methodId: '+header.methodId);
+
+            let requestHash = header.serviceHash;
+
+            if (!this.bindless) {
+                requestHash = this.exportedServices[header.serviceId];
+            }
+
+            if (!this.isAccepting() || this.inFlight >= 128) {
+                const response = Header.fromObject({ ...Header.toObject(header), serviceId: 0xFE, status: 1, size: 0 });
+                const encoded = Header.encode(response).finish();
+                const rejected = Buffer.alloc(2 + encoded.length);
+                rejected.writeUInt16BE(encoded.length);
+                encoded.copy(rejected, 2);
+                void this.writeBuffer(rejected);
+                return;
+            }
+            if (requestHash === this.serviceHash) {
+                this.onMessage(header, payload, this);
+            }
+            else if (requestHash) {
+                this.inFlight++;
+                this.publish('battlenet_aurora_bus', requestHash.toString(), payload,
+                    {
+                        headers: { ...Header.toObject(header), identity: this.identity },
+                        replyTo: this.queueName,
+                        appId: this.serviceName,
+                        type: 'request'
+                    });
+            }
+            else {
+                //send error ERROR_RPC_INVALID_SERVICE
             }
         }
     }

@@ -124,6 +124,16 @@ and timestamps default to enabled; `json: false` selects text output and
 `timestamp: false` disables timestamps. Development also logs to the console at
 debug level. Error messages and stacks are normalized before transport formatting.
 
+Logon callbacks carry a 64-byte binary session key and the available
+GameAccount regions. RealmJoin tickets use canonical platform strings; native
+client numeric FourCC values such as `1466840628` are decoded to `Wn64` before
+storage and when reading older cached realm-list tickets.
+
+Client RPC input is parsed as a bounded TCP stream. Split prefixes, headers and
+payloads are retained; coalesced messages are dispatched separately using their
+declared payload lengths. Headers are limited to 1 KiB and complete frames to
+1 MiB, with size checks before payload allocation.
+
 ## Redis Sentinel configuration and storage
 
 All entrypoints use the same Sentinel-backed primary. Supply configuration through
@@ -617,9 +627,11 @@ and use, and binds tickets to the server-generated connection UUID, account and
 verified source address. Redis connection identities expire after five minutes
 of inactivity and refresh when used. Database/IP-ban failures fail authentication
 closed. Existing permanent ban flags retain their meaning. Realm join tickets
-carry the identity and effective GM level; a future worldserver consumer must
-recheck those controls on world entry. No native join-ticket consumer is present
-in this repository.
+carry the identity and effective GM level. The sibling Legion native admission
+path retrieves the Redis ticket and rechecks account ownership, bans, current
+privilege and the actual socket address through BGS before entering the world.
+Its remaining gameplay and startup integration is tracked in
+`../operator/LEGION-INTEGRATION.md`; it is not yet an operator-ready core.
 
 Frontend `BGS_PROXY_PROTOCOL=v2` requires nonempty `BGS_TRUSTED_PROXY_CIDRS` (JSON
 CIDR array) and TLS. It consumes a bounded PROXY v2 header before the TLS
@@ -658,3 +670,74 @@ Redis continues to hold tickets and authenticated connection state, while realm
 metadata comes exclusively from SQL. Lists match the exact client version/build
 and game-account region. Offline or expired realms remain visible but reject
 joins. Core images must implement the operator's heartbeat/runtime contract.
+
+## Worldserver service API
+
+`node realm.js` consumes JSON RPC from `skymist.realm.rpc.v1.requests` in vhost
+`skymist-realms`. The operator provisions Realm users that may publish requests
+and consume only their own reply queues. Requests bind namespace, Realm UID,
+Pod UID, process UUID, GameAccount ID, session UUID and generation. Account IDs
+and generations are decimal strings through signed BIGINT; they never pass
+through JavaScript numbers.
+
+Redis holds Realm-scoped join tickets, session leases and one-use continuations.
+A lease also binds the parent account and canonical socket address; it lasts
+90 seconds and the native session renews it every five seconds. Ticket issuance
+does not authorize world entry indefinitely: `session.open` checks current SQL
+policy, and admission binds the returned generation before making a fresh
+`account.policy` call. That call requires `arguments: {"address":"<canonical IP>"}`
+so instance handoffs check their actual peer as well as the original lease peer.
+IP-ban reads share the account authorization transaction and cannot acquire an
+additional pool connection while holding the session SQL fence.
+
+Account policy replies include effective security and explicit global/Realm
+permission grants and denials. Static role definitions belong to the core's
+world schema; denials win after role expansion. Global account administration
+uses the BGS admin CLI. Shared gameplay reads/writes, summaries and durable
+reservation recovery use JSON AMQP RPC; Redis is not their durable authority.
+
+Small saves use `state.prepare` with up to 16 changes. Larger saves use
+`state.begin` with `change_count` and `chunk_count`, followed by `state.append`
+with the reservation ID, zero-based chunk index and at most 16 changes per
+message. The reservation accepts at most 4,096 changes, 512 chunks and 8 MiB of
+encoded chunk data. Each RPC retains its original request ID when recovering an
+uncertain reply; conflicting replacement data for an existing chunk is rejected.
+`state.seal` verifies all chunks, unique keys and current revisions before making
+the reservation eligible for `state.commit`. Uploading or sealing applies no
+shared changes. The core must commit its character SQL and outbox together before
+committing the reservation, or prove rollback under its acknowledged SQL ownership
+fence before aborting it. A staged finalization returns `change_count` instead of
+an unbounded revision list. `state.pending` includes interrupted `staging` uploads
+as well as `prepared` saves; `state.abort` remains available after lease loss.
+The schema is installed by `20261103000003-staged-realm-reservations.js`.
+
+The opt-in `scripts/realm-integration.js` fixture accepts `REALM_NATIVE_IMAGE`
+to run the C++ admission/save client against real Redis/Sentinel, restricted RabbitMQ
+users and the BGS receiver. Set `REALM_TEST_BUILD=26972` for the matching port's
+OS-bound admission proof; the default remains 22900 for the preserved baseline.
+It requires the existing disposable fixture ports
+and Docker access, creates uniquely labelled temporary containers and private
+configuration files, and cleans only those resources. It covers multi-chunk
+commit/rollback and recovery after discarding a successful chunk acknowledgement.
+The native recovery worker also exercises pending-save finalization after process
+or lease loss, validates marker identity and retries a lost finalization reply.
+Its caller must first authorize the process, acquire an acknowledged SQL ownership
+epoch and keep admission/saves disabled until recovery completes. Runtime startup
+wiring now gates native world initialization and admission. Character, inventory,
+trade, creation, deletion, restoration and logout saves use acknowledged SQL and
+outbox recovery in the core; actual-client gameplay acceptance remains pending.
+Full native-client and
+worldserver acceptance remain separate.
+
+Startup permission uses `process.claim` / `process.check` with GameAccount and
+generation `"0"`, exact build/expansion, the operator-selected revision and the
+new SQL epoch. A claim also binds `previous_epoch`, read before requesting BGS
+authorization. Directory migration v4 selects a single owned, current,
+non-deleting Pod independently of online heartbeats. BGS migration
+`20261103000004-realm-process-permits.js` stores immutable per-instance permits
+and the active instance; a retired instance cannot reclaim its old permission.
+The core conditionally replaces only its original SQL observation, requires an
+acknowledged acquisition, completes reservation recovery, then confirms permission
+and SQL ownership before admission. Periodic checks revoke native readiness on
+ownership loss. Existing legacy LoginDatabase users, heartbeat/HTTP readiness and
+gameplay save integration still prevent full operator-runtime acceptance.

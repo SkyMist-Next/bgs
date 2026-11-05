@@ -4,18 +4,6 @@ const crypto = require('crypto');
 
 const Listener = require('./listener');
 
-const Region = {
-    Uninitialized: -1,
-    Unknown: 0,
-    Us: 1,
-    Kr: 2,
-    Eu: 3,
-    Tw: 4,
-    Cn: 5,
-    Dev: 60,
-    Ptr: 98
-};
-
 class AuthenticationListener extends Listener {
     constructor(context, amqpConnection){
         super('AuthenticationListener', 'proto/bgs/low/pb/client/authentication_service.proto', amqpConnection);
@@ -34,10 +22,13 @@ class AuthenticationListener extends Listener {
 
                 gameAccounts.forEach((gameAccount) => {
                     request.gameAccountId.push(gameAccount.entityId);
+                    if (!request.availableRegion.includes(gameAccount.region)) {
+                        request.availableRegion.push(gameAccount.region);
+                    }
                 });
 
-                request.sessionKey = crypto.randomBytes(64).toString('hex');
-                request.connectedRegion = Region.Eu;
+                request.sessionKey = crypto.randomBytes(64);
+                request.connectedRegion = gameAccounts[0].region;
             }
         });
     }

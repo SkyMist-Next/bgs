@@ -45,7 +45,7 @@ function setup({ missingAccount = false, program = 'WoW', fail, banned = false, 
             entityId: EntityId.fromObject({ high: '72057594037927936', low: '9007199254740993' }),
             isBanned: banned, isSuspended: suspended, banExpiresAt,
             id: '9007199254740993', battleTag: 'Demo#1234',
-            gameAccounts: [{ program: 'WoW', entityId: EntityId.fromObject({ high: '144115196671098711', low: '9007199254740995' }) }]
+            gameAccounts: [{ program: 'WoW', region: 1, entityId: EntityId.fromObject({ high: '144115196671098711', low: '9007199254740995' }) }]
         };
     };
     return { messages, writes, closed: () => closed, service: new AuthenticationService({ logger, models, store, amqpConnection }) };
@@ -86,6 +86,9 @@ test('web credentials emit exactly one callback for success, missing identity, a
             const result = LogonResult.decode(state.messages[0][1]);
             assert.equal(result.errorCode, status);
             if (status === 0) {
+                assert.equal(result.sessionKey.length, 64);
+                assert.equal(result.connectedRegion, 1);
+                assert.deepEqual(result.availableRegion, [1]);
                 assert.equal(result.accountId.low.toString(), '9007199254740993');
                 assert.equal(result.gameAccountId[0].low.toString(), '9007199254740995');
             }
@@ -118,4 +121,19 @@ test('an IP ban added after Logon blocks credential verification', async () => {
     state.messages.length = 0;
     await state.service.VerifyWebCredential({ identity, queueName: 'client', request: { webCredentials: Buffer.from('ticket') } });
     assert.notEqual(LogonResult.decode(state.messages[0][1]).errorCode, 0);
+});
+
+test('logon callback lists distinct available GameAccount regions', async () => {
+    const state = setup(), original = state.service.models.Account.findOne;
+    state.service.models.Account.findOne = async query => {
+        const account = await original(query), first = account.gameAccounts[0];
+        account.gameAccounts.push({ ...first, region: 3 }, { ...first, region: 1 });
+        return account;
+    };
+    await state.service.VerifyWebCredential({ identity: { connectionId: 'test-connection', address: '127.0.0.1' },
+        queueName: 'client', request: { webCredentials: Buffer.from('ticket') } });
+    const value = LogonResult.decode(state.messages[0][1]);
+    assert.deepEqual(value.availableRegion, [1, 3]);
+    assert.equal(value.connectedRegion, 1);
+    assert.equal(value.sessionKey.length, 64);
 });

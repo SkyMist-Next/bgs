@@ -6,6 +6,7 @@ const loadProto = require('../utils/protobuf');
 
 const Service = require('./service.js');
 const { principal, gameAccount, privilege, blocked } = require('../utils/admin-state');
+const { Sessions } = require('../realm/sessions');
 
 const gameUtilitiesTypes = loadProto('proto/bgs/low/pb/client/game_utilities_types.proto');
 
@@ -15,6 +16,17 @@ const Variant = gameUtilitiesTypes.lookupType('bgs.protocol.Variant');
 function GetJSON(variant, name) {
     let string = variant.blobValue.toString();
     return JSON.parse(string.slice(name.length + 1, string.length - 1));
+}
+
+function clientPlatform(value = 'Win') {
+    if (typeof value === 'number') {
+        if (!Number.isInteger(value) || value < 0 || value > 0xFFFFFFFF) { throw 0xA; }
+        const bytes = Buffer.alloc(4);
+        bytes.writeUInt32BE(value);
+        value = bytes.toString('latin1').replace(/\0+$/, '');
+    }
+    if (typeof value !== 'string' || !/^[A-Za-z0-9]{1,4}$/.test(value)) { throw 0xA; }
+    return value;
 }
 
 function deflateJSONAttributeValue(name, object) {
@@ -44,19 +56,11 @@ function stringToRealmAddress(string) {
             (Number.parseInt(parts[2], 10) & 0xFFFF)) >>> 0;
 }
 
-function bufferToArray(buffer) {
-    let array = [];
-    for (const value of buffer) {
-        array.push(value);
-    }
-
-    return array;
-}
-
 class GameUtilitiesService extends Service {
     constructor({ logger, store, models, realmDirectory }) {
         super('GameUtilitiesService', 'proto/bgs/low/pb/client/game_utilities_service.proto', { logger });
         this.store = store;
+        this.sessions = new Sessions(store);
         this.models = models;
         this.realms = realmDirectory || new (require('../utils/realm-directory'))(models, models.realmDatabase);
 
@@ -74,6 +78,9 @@ class GameUtilitiesService extends Service {
             if (game.program !== 'WoW') { throw 0xA; }
             let clientInfo = GetJSON(params.ClientInfo, 'JSONRealmListTicketClientInformation');
             if (!Number.isInteger(clientInfo.info?.version?.versionBuild) || clientInfo.info.version.versionBuild <= 0 || (owner.applicationVersion && owner.applicationVersion !== clientInfo.info.version.versionBuild)) { throw 0xA; }
+            if (!Array.isArray(clientInfo.info.secret) || clientInfo.info.secret.length !== 32 || clientInfo.info.secret.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) { throw 0xA; }
+
+            clientInfo.info.platform = clientPlatform(clientInfo.info.platform);
 
             let listTicket = crypto.randomBytes(20);
             let listTicketKey = '/aurora/services/' + this.getServiceName() + '/realmListTickets/' + listTicket.toString('hex');
@@ -120,6 +127,8 @@ class GameUtilitiesService extends Service {
                 Object.getOwnPropertyNames(realms).forEach((virtualRealmAddressKey) => {
                     let realmEntry = {
                         update: {},
+                        realmUID: realms[virtualRealmAddressKey].realmUID,
+                        expansion: realms[virtualRealmAddressKey].expansion,
                         deleting: null
                     };
 
@@ -148,7 +157,12 @@ class GameUtilitiesService extends Service {
             }).
             then(async (listTicketInfo) => {
                 await this.validateTicket(listTicketInfo, context);
-                realmListUpdates = realmListUpdates.filter(entry => ['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => entry.update.version[key] === listTicketInfo.info.version[key]) &&
+                const game = await gameAccount(this.models, listTicketInfo.owner, listTicketInfo.identity.gameAccountId);
+                const counts = await this.models.GameAccountCharacters.findAll({ where: { game_account_id: String(game.id) },
+                    attributes: ['realm_uid', 'character_count'], limit: 4097, raw: true });
+                if (counts.length > 4096) { throw 0xA; }
+                const countByRealm = new Map(counts.map(row => [row.realm_uid, row.character_count]));
+                realmListUpdates = realmListUpdates.filter(entry => Number.isInteger(entry.expansion) && entry.expansion === game.expansion && ['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => entry.update.version[key] === listTicketInfo.info.version[key]) &&
                     Number(subRegion.split('-')[0]) === listTicketInfo.identity.gameAccountRegion);
                 realmListUpdates.forEach((realmEntry) => {
                     if (realmEntry.update.version.versionMajor !== listTicketInfo.info.version.versionMajor ||
@@ -156,8 +170,9 @@ class GameUtilitiesService extends Service {
                         realmEntry.update.version.versionRevision !== listTicketInfo.info.version.versionRevision)
                         realmEntry.update.flags |= 0x1;
 
-                    //TODO for each realm check if any characters exist for this GameAccount, for now put static count of 0
-                    characterCounts.push({ count: 0, wowRealmAddress: realmEntry.update.wowRealmAddress });
+                    characterCounts.push({ count: countByRealm.get(realmEntry.realmUID) || 0, wowRealmAddress: realmEntry.update.wowRealmAddress });
+                    delete realmEntry.realmUID;
+                    delete realmEntry.expansion;
                 });
 
                 responseParams.RealmList.blobValue = deflateJSONAttributeValue('JSONRealmListUpdates', {updates: realmListUpdates});
@@ -202,25 +217,28 @@ class GameUtilitiesService extends Service {
                 const game = await gameAccount(this.models, listTicketInfo.owner, listTicketInfo.identity.gameAccountId);
                 selectedRealm = await this.realms.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/virtualRealms/' + realmAddress);
                 responseParams.ServerAddresses.blobValue = deflateJSONAttributeValue('JSONRealmListServerIPAddresses', { families: selectedRealm.endpoints });
-                if (!selectedRealm.available || selectedRealm.region !== game.region || selectedRealm.build !== listTicketInfo.info.version.versionBuild || !(['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => selectedRealm.update.version[key] === listTicketInfo.info.version[key])) ||
+                if (!Number.isInteger(selectedRealm.expansion) || selectedRealm.expansion !== game.expansion || !selectedRealm.available || selectedRealm.region !== game.region || selectedRealm.build !== listTicketInfo.info.version.versionBuild || !(['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => selectedRealm.update.version[key] === listTicketInfo.info.version[key])) ||
                     await privilege(this.models, game.id, realmUid) < selectedRealm.securityLevel) { throw 0xA; }
                 responseParams.RealmJoinTicket.blobValue = crypto.randomBytes(20);
                 responseParams.JoinSecret.blobValue = crypto.randomBytes(32);
 
                 let joinTicketInfo = {
-                    owner: listTicketInfo.owner,
-                    realmUID: realmUid || null,
-                    gmLevel: await privilege(this.models, listTicketInfo.identity.gameAccountId, realmUid),
-                    subRegion: subRegion,
-                    realmAddress: realmAddress,
-                    gameAccount: listTicketInfo.identity,
-                    clientSecret: listTicketInfo.info.secret,
-                    joinSecret: bufferToArray(responseParams.JoinSecret.blobValue),
+                    version: 1,
+                    namespace: selectedRealm.namespace,
+                    realm_uid: realmUid,
+                    game_account_id: String(game.id),
+                    account_id: String(game.accountId),
+                    expansion: game.expansion,
+                    build: selectedRealm.build,
+                    region: game.region,
+                    address: listTicketInfo.owner.address,
+                    locale: listTicketInfo.info.locale || 'enUS',
+                    platform: clientPlatform(listTicketInfo.info.platform),
+                    gm_level: await privilege(this.models, String(game.id), realmUid),
+                    client_secret: Buffer.from(listTicketInfo.info.secret).toString('hex'),
+                    join_secret: responseParams.JoinSecret.blobValue.toString('hex'),
                 };
-
-                let joinTicketKey = '/aurora/services/' + this.getServiceName() + '/realmJoinTickets/' + responseParams.RealmJoinTicket.blobValue.toString('hex');
-
-                return this.store.setJSON(joinTicketKey, joinTicketInfo);
+                return this.sessions.issue(responseParams.RealmJoinTicket.blobValue.toString('hex'), joinTicketInfo);
             }, () => {
                 return Promise.reject(0x8000012D) //ERROR_WOW_SERVICES_INVALID_REALM_LIST_TICKET
             }).
