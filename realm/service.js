@@ -3,6 +3,7 @@ const { Op, fn, col } = require('sequelize');
 const { Failure, fingerprint, canonical, MAX_RESERVATION_BYTES } = require('./contract');
 const { blocked, privilege, checkIP } = require('../utils/admin-state');
 const { owner: sessionOwner } = require('./sessions');
+const { licenseIndex } = require('../utils/wow-license');
 const json = value => typeof value === 'string' ? JSON.parse(value) : value;
 
 class RealmService {
@@ -53,6 +54,10 @@ class RealmService {
             realm.expansion !== game.expansion || realm.region !== game.region || realm.build !== lease.build || security < realm.security_level)) { throw new Failure('REALM_UNAVAILABLE'); }
         const policy = { game_account_id: String(game.id), account_id: String(game.accountId), expansion: game.expansion,
             security_level: security, region: game.region, display_name: game.displayName || String(game.id) };
+        if (lease.build === 15595) {
+            try { policy.wow_license_index = licenseIndex(game.wowLicenseIndex); }
+            catch { throw new Failure('ACCOUNT_IDENTITY_INVALID'); }
+        }
         if (['session.open', 'account.policy'].includes(request.operation)) {
             const rows = await this.models.GameAccountPermission.findAll({
                 where: { game_account_id: request.game_account_id, realm_uid: { [Op.in]: ['', r.realm_uid] } },

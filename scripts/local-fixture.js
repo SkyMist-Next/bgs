@@ -39,8 +39,11 @@ async function provision({ email, password }) {
         }
         let gameAccountId = games[0]?.id;
         if (!gameAccountId) {
-            await sql.execute('INSERT INTO game_accounts (account_id, program, region, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, NOW(), NOW())',
-                [accountId, 'WoW', 3, 'WoW Local']);
+            const [[parent]] = await sql.execute('SELECT wow_license_index_high_water AS high FROM accounts WHERE id=? FOR UPDATE', [accountId]);
+            if (!Number.isInteger(parent.high) || parent.high < 0 || parent.high >= 0xFFFFFFFF) { throw new Error('WoW license index exhausted'); }
+            await sql.execute('UPDATE accounts SET wow_license_index_high_water=? WHERE id=?', [parent.high + 1, accountId]);
+            await sql.execute('INSERT INTO game_accounts (account_id, program, region, display_name, wow_license_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
+                [accountId, 'WoW', 3, 'WoW Local', parent.high + 1]);
             const [[created]] = await sql.query('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id');
             gameAccountId = created.id;
         }

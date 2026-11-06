@@ -2,6 +2,7 @@
 const FourCC = require('../utils/fourcc');
 const Long = require('long');
 const loadProto = require('../utils/protobuf');
+const { allocate } = require('../utils/wow-license');
 
 const entityTypes = loadProto('proto/bgs/low/pb/client/entity_types.proto');
 const entityId = entityTypes.lookupType('bgs.protocol.EntityId');
@@ -17,6 +18,7 @@ module.exports = (sequelize, DataTypes) => {
         isBanned: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'banned' },
         isSuspended: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'suspended' },
         accountId: { type: DataTypes.BIGINT, allowNull: false, field: 'account_id' },
+        wowLicenseIndex: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, field: 'wow_license_index' },
         expansion: { type: DataTypes.TINYINT, allowNull: false, defaultValue: 6 },
         billingPlan: { type: DataTypes.TINYINT, allowNull: true, defaultValue: 0, field: 'billing_plan' },
         billingTimeRemaining: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: 'billing_time_remaining' },
@@ -34,8 +36,20 @@ module.exports = (sequelize, DataTypes) => {
             }
         },
         hooks: {
+            async beforeCreate(instance, options) {
+                if (instance.program === 'WoW') {
+                    if (instance.wowLicenseIndex != null) { throw new Error('WoW license index is allocated by the server'); }
+                    instance.wowLicenseIndex = await allocate(sequelize.models, instance.accountId, options.transaction);
+                } else if (instance.wowLicenseIndex != null) { throw new Error('Non-WoW account has a WoW license index'); }
+            },
+            beforeBulkCreate(instances, options) {
+                if (!options.individualHooks && instances.some(instance => instance.program === 'WoW')) {
+                    throw new Error('WoW account bulk creation requires individual hooks and a transaction');
+                }
+            },
             beforeUpdate(instance) {
                 if (instance.changed('expansion')) { throw new Error('GameAccount expansion is immutable'); }
+                if (['accountId', 'wowLicenseIndex', 'program'].some(field => instance.changed(field))) { throw new Error('GameAccount license identity is immutable'); }
             }
         },
         timestamps: true,

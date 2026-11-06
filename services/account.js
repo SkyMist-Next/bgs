@@ -3,7 +3,8 @@
 const loadProto = require('../utils/protobuf');
 
 const Service = require('./service');
-const { principal, banned } = require('../utils/admin-state');
+const { principal, banned, blocked } = require('../utils/admin-state');
+const { realmAccountName } = require('../utils/wow-license');
 
 const accountTypes = loadProto('proto/bgs/low/pb/client/account_types.proto');
 
@@ -57,9 +58,16 @@ class AccountService extends Service{
         return this.models.GameAccount.findByPk(context.request.gameAccountId.low.toString()).
         then((gameAccount) => {
             if (!gameAccount || String(gameAccount.accountId) !== owner.accountId) { throw 0xA; }
+            let name = gameAccount.displayName;
+            if (owner.applicationVersion === 15595) {
+                if (blocked(gameAccount) || gameAccount.program !== 'WoW' || gameAccount.expansion !== 3 ||
+                    context.request.gameAccountId.high.toString() !== gameAccount.entityId.high.toString()) { throw 0xA; }
+                try { name = realmAccountName(gameAccount.accountId, gameAccount.wowLicenseIndex); }
+                catch { throw 0xA; }
+            }
             if(Object.hasOwn(context.request.options, 'fieldGameLevelInfo')) {
                 context.response.state.gameLevelInfo = GameLevelInfo.create();
-                context.response.state.gameLevelInfo.name = gameAccount.displayName;
+                context.response.state.gameLevelInfo.name = name;
                 context.response.state.gameLevelInfo.program = gameAccount.entityId.high.getLowBitsUnsigned();
 
                 context.response.tags.gameLevelInfoTag = 0x5C46D483;

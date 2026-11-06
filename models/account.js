@@ -10,6 +10,7 @@ module.exports = (sequelize, DataTypes) => {
         id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
         email: { type: DataTypes.STRING, allowNull: false },
         hash: { type: DataTypes.STRING, allowNull: false },
+        wowLicenseIndexHighWater: { type: DataTypes.INTEGER.UNSIGNED, allowNull: false, defaultValue: 0, field: 'wow_license_index_high_water' },
         battleTag: { type: DataTypes.STRING, allowNull: false, field: 'battle_tag' },
         banExpiresAt: { type: DataTypes.DATE, field: 'ban_expires_at' },
         banReason: { type: DataTypes.STRING(1024), field: 'ban_reason' },

@@ -71,7 +71,8 @@ class AuthenticationService extends Service {
             }
             else {
                 const program = ticket.program;
-                gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program && !blocked(gameAccount));
+                gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program && !blocked(gameAccount) &&
+                    (applicationVersion !== 15595 || (gameAccount.program === 'WoW' && gameAccount.expansion === 3)));
                 if (!gameAccounts.length) {
                     status = 0x0000000C; // ERROR_NO_GAME_ACCOUNT
                 }

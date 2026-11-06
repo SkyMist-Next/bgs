@@ -34,7 +34,7 @@ async function principal(models, store, context) {
     return { ...value, connectionId: supplied.connectionId };
 }
 async function gameAccount(models, owner, id) {
-    if (!/^[1-9][0-9]{0,18}$/.test(String(id))) { throw 0xA; }
+    if ((typeof id === 'number' && !Number.isSafeInteger(id)) || !/^[1-9][0-9]{0,18}$/.test(String(id)) || BigInt(id) > 9223372036854775807n) { throw 0xA; }
     const account = await models.GameAccount.findByPk(String(id));
     if (blocked(account) || String(account.accountId) !== owner.accountId) { throw 0xA; }
     return account;

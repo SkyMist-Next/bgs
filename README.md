@@ -741,3 +741,11 @@ acknowledged acquisition, completes reservation recovery, then confirms permissi
 and SQL ownership before admission. Periodic checks revoke native readiness on
 ownership loss. Existing legacy LoginDatabase users, heartbeat/HTTP readiness and
 gameplay save integration still prevent full operator-runtime acceptance.
+
+## Cataclysm 15595
+
+Build 15595 uses expansion-3 licenses, persisted native aliases and the explicit
+`Command_RealmJoinRequest_v0_b9` adapter. Apply the WoW-license identity migration
+before updating writers. [The Cataclysm contract](docs/cataclysm-15595.md) describes
+allocation/backfill, immutable identity, the raw 40-byte key, 60-second Redis
+supersession/claim semantics and the separate service/native validation gates.

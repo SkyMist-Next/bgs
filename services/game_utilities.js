@@ -7,6 +7,8 @@ const loadProto = require('../utils/protobuf');
 const Service = require('./service.js');
 const { principal, gameAccount, privilege, blocked } = require('../utils/admin-state');
 const { Sessions } = require('../realm/sessions');
+const { CataclysmSessions } = require('../realm/cataclysm-sessions');
+const { realmAccountName } = require('../utils/wow-license');
 
 const gameUtilitiesTypes = loadProto('proto/bgs/low/pb/client/game_utilities_types.proto');
 
@@ -14,8 +16,12 @@ const Attribute = gameUtilitiesTypes.lookupType('bgs.protocol.Attribute');
 const Variant = gameUtilitiesTypes.lookupType('bgs.protocol.Variant');
 
 function GetJSON(variant, name) {
-    let string = variant.blobValue.toString();
-    return JSON.parse(string.slice(name.length + 1, string.length - 1));
+    if (!Buffer.isBuffer(variant?.blobValue) || variant.blobValue.length > 4 * 1024 * 1024) { throw 0xA; }
+    try {
+        const string = new TextDecoder('utf-8', { fatal: true }).decode(variant.blobValue);
+        if (!string.startsWith(name + ':') || !string.endsWith('\0') || string.slice(0, -1).includes('\0')) { throw 0xA; }
+        return JSON.parse(string.slice(name.length + 1, -1));
+    } catch { throw 0xA; }
 }
 
 function clientPlatform(value = 'Win') {
@@ -61,6 +67,7 @@ class GameUtilitiesService extends Service {
         super('GameUtilitiesService', 'proto/bgs/low/pb/client/game_utilities_service.proto', { logger });
         this.store = store;
         this.sessions = new Sessions(store);
+        this.cataclysmSessions = new CataclysmSessions(store);
         this.models = models;
         this.realms = realmDirectory || new (require('../utils/realm-directory'))(models, models.realmDatabase);
 
@@ -75,7 +82,7 @@ class GameUtilitiesService extends Service {
             let identity = GetJSON(params.Identity, 'JSONRealmListTicketIdentity');
             const game = await gameAccount(this.models, owner, identity.gameAccountID);
             identity = { gameAccountId: String(game.id), gameAccountRegion: game.region };
-            if (game.program !== 'WoW') { throw 0xA; }
+            if (game.program !== 'WoW' || (owner.applicationVersion === 15595 && game.expansion !== 3)) { throw 0xA; }
             let clientInfo = GetJSON(params.ClientInfo, 'JSONRealmListTicketClientInformation');
             if (!Number.isInteger(clientInfo.info?.version?.versionBuild) || clientInfo.info.version.versionBuild <= 0 || (owner.applicationVersion && owner.applicationVersion !== clientInfo.info.version.versionBuild)) { throw 0xA; }
             if (!Array.isArray(clientInfo.info.secret) || clientInfo.info.secret.length !== 32 || clientInfo.info.secret.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) { throw 0xA; }
@@ -183,7 +190,8 @@ class GameUtilitiesService extends Service {
             })
         });
 
-        this.registerCommand('RealmJoinRequest', (params, commandValue, context) => {
+        this.registerCommand('RealmJoinRequest', (params, commandValue, context, command = { version: 'v1' }) => {
+            const cataclysm = command.version === 'v0';
             let subRegion = commandValue.stringValue;
             let realmUid;
             let selectedRealm;
@@ -195,7 +203,7 @@ class GameUtilitiesService extends Service {
             let responseParams = {
                 ServerAddresses: Variant.create(),
                 RealmJoinTicket: Variant.create(),
-                JoinSecret: Variant.create()
+                ...(cataclysm ? { RealmAccountName: Variant.create(), RealmSessionKey: Variant.create() } : { JoinSecret: Variant.create() })
             };
 
             return this.realms.getMetadataJSON('/aurora/services/WoWService/subRegions/' + subRegion + '/virtualRealms/' + realmAddress).
@@ -219,8 +227,14 @@ class GameUtilitiesService extends Service {
                 responseParams.ServerAddresses.blobValue = deflateJSONAttributeValue('JSONRealmListServerIPAddresses', { families: selectedRealm.endpoints });
                 if (!Number.isInteger(selectedRealm.expansion) || selectedRealm.expansion !== game.expansion || !selectedRealm.available || selectedRealm.region !== game.region || selectedRealm.build !== listTicketInfo.info.version.versionBuild || !(['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => selectedRealm.update.version[key] === listTicketInfo.info.version[key])) ||
                     await privilege(this.models, game.id, realmUid) < selectedRealm.securityLevel) { throw 0xA; }
+                const build = cataclysm ? 15595 : 26972;
+                if (listTicketInfo.owner.applicationVersion !== build || selectedRealm.build !== build ||
+                    game.expansion !== (cataclysm ? 3 : 6)) { throw 0xA; }
                 responseParams.RealmJoinTicket.blobValue = crypto.randomBytes(20);
-                responseParams.JoinSecret.blobValue = crypto.randomBytes(32);
+                if (cataclysm) {
+                    responseParams.RealmAccountName.stringValue = realmAccountName(game.accountId, game.wowLicenseIndex);
+                    responseParams.RealmSessionKey.blobValue = crypto.randomBytes(40);
+                } else { responseParams.JoinSecret.blobValue = crypto.randomBytes(32); }
 
                 let joinTicketInfo = {
                     version: 1,
@@ -235,10 +249,24 @@ class GameUtilitiesService extends Service {
                     locale: listTicketInfo.info.locale || 'enUS',
                     platform: clientPlatform(listTicketInfo.info.platform),
                     gm_level: await privilege(this.models, String(game.id), realmUid),
-                    client_secret: Buffer.from(listTicketInfo.info.secret).toString('hex'),
-                    join_secret: responseParams.JoinSecret.blobValue.toString('hex'),
+                    ...(cataclysm ? {
+                        auth_protocol: 'wow-15595-v0', wow_license_index: game.wowLicenseIndex,
+                        realm_account_name: responseParams.RealmAccountName.stringValue,
+                        realm_key: responseParams.RealmSessionKey.blobValue.toString('hex')
+                    } : { client_secret: Buffer.from(listTicketInfo.info.secret).toString('hex'),
+                        join_secret: responseParams.JoinSecret.blobValue.toString('hex') }),
                 };
-                return this.sessions.issue(responseParams.RealmJoinTicket.blobValue.toString('hex'), joinTicketInfo);
+                if (!cataclysm) { return this.sessions.issue(responseParams.RealmJoinTicket.blobValue.toString('hex'), joinTicketInfo); }
+                joinTicketInfo.issued_at_ms = Date.now();
+                joinTicketInfo.expires_at_ms = joinTicketInfo.issued_at_ms + 60000;
+                for (let retry = 0; retry < 8; retry++) {
+                    try { return await this.cataclysmSessions.issue(responseParams.RealmJoinTicket.blobValue.toString('hex'), joinTicketInfo); }
+                    catch (error) {
+                        if (error.code !== 'TICKET_COLLISION') { throw error; }
+                        responseParams.RealmJoinTicket.blobValue = crypto.randomBytes(20);
+                    }
+                }
+                throw 0x80000075;
             }, () => {
                 return Promise.reject(0x8000012D) //ERROR_WOW_SERVICES_INVALID_REALM_LIST_TICKET
             }).
@@ -263,7 +291,7 @@ class GameUtilitiesService extends Service {
 
     handleCommand(command, params, context) {
         if (Object.hasOwn(this.commandHandlers, command.name)) {
-            return this.commandHandlers[command.name](params, command.value, context).then((responseParams) => {
+            return this.commandHandlers[command.name](params, command.value, context, command).then((responseParams) => {
                 let attributes = [];
                 Object.getOwnPropertyNames(responseParams).forEach((responseParamName) => {
                     let attribute = Attribute.create();
@@ -285,43 +313,50 @@ class GameUtilitiesService extends Service {
         }
     }
 
-    ProcessClientRequest(context) {
-        let command = {
-            name: '',
-            value: null,
-            version: '',
-            auroraVersion: ''
-        };
-
-        let params = {};
-
-        for (let i = 0; i < context.request.attribute.length; i++) {
-            let attribute = context.request.attribute[i];
-
-            let parts = attribute.name.split('_');
-
-            switch (parts[0]) {
-                case 'Command': {
-                    command.name = parts[1];
-                    command.version = parts[2];
-                    command.auroraVersion = parts[3];
-
-                    if (attribute.value) {
-                        command.value = attribute.value;
-                    }
-                    break;
-                }
-                case 'Param': {
-                    params[parts[1]] = attribute.value;
-                    break;
-                }
+    async ProcessClientRequest(context) {
+        const attributes = context.request.attribute;
+        if (!Array.isArray(attributes) || attributes.length > 8) { throw 0xA; }
+        let command;
+        const params = Object.create(null);
+        for (const attribute of attributes) {
+            if (typeof attribute.name !== 'string' || !attribute.value) { throw 0xA; }
+            if (attribute.name.startsWith('Command_')) {
+                if (command) { throw 0xA; }
+                const match = /^Command_([A-Za-z]+)_(v[0-9]+)_(b[0-9]+)$/.exec(attribute.name);
+                if (!match) { throw 0x000084D3; }
+                command = { name: match[1], version: match[2], auroraVersion: match[3], value: attribute.value };
+            } else {
+                const match = /^Param_([A-Za-z]+)$/.exec(attribute.name);
+                if (!match || Object.hasOwn(params, match[1])) { throw 0xA; }
+                params[match[1]] = attribute.value;
             }
         }
-
-        return this.handleCommand(command, params, context).then((attributes) => {
-            context.response.attribute = attributes;
-            return Promise.resolve(0);
-        });
+        if (!command) { throw 0xA; }
+        if (!Object.hasOwn(this.commandHandlers, command.name) || command.auroraVersion !== 'b9' ||
+            !(command.version === 'v1' || (command.name === 'RealmJoinRequest' && command.version === 'v0'))) { throw 0x000084D3; }
+        const shape = command.name === 'RealmListTicketRequest' ? { Identity: 'blobValue', ClientInfo: 'blobValue' } :
+            command.name === 'RealmListRequest' ? { RealmListTicket: 'blobValue' } : { RealmListTicket: 'blobValue', RealmAddress: 'uintValue' };
+        if (Object.keys(params).sort().join(',') !== Object.keys(shape).sort().join(',')) { throw 0xA; }
+        const variant = (value, type) => {
+            const fields = Object.keys(value).filter(key => Object.hasOwn(Variant.fields, key));
+            if (fields.length !== (type ? 1 : 0) || (type && fields[0] !== type)) { throw 0xA; }
+            if (type === 'blobValue' && !Buffer.isBuffer(value[type])) { throw 0xA; }
+            if (type === 'stringValue' && typeof value[type] !== 'string') { throw 0xA; }
+        };
+        variant(command.value, command.name === 'RealmListTicketRequest' ? null : 'stringValue');
+        for (const [name, type] of Object.entries(shape)) { variant(params[name], type); }
+        if (params.RealmListTicket && params.RealmListTicket.blobValue.length !== 20) { throw 0xA; }
+        if (command.name !== 'RealmListTicketRequest' && !/^[1-9][0-9]{0,2}-[0-9]{1,3}-0$/.test(command.value.stringValue)) { throw 0xA; }
+        if (command.name === 'RealmJoinRequest') {
+            let address;
+            try { address = BigInt(params.RealmAddress.uintValue.toString()); } catch { throw 0xA; }
+            if (address < 1n || address > 0xFFFFFFFFn || (address & 0xFFFFn) === 0n ||
+                command.value.stringValue !== Number((address >> 24n) & 255n) + '-' + Number((address >> 16n) & 255n) + '-0') { throw 0xA; }
+            const owner = await principal(this.models, this.store, context);
+            if (owner.applicationVersion !== (command.version === 'v0' ? 15595 : 26972)) { throw 0xA; }
+        }
+        context.response.attribute = await this.handleCommand(command, params, context);
+        return 0;
     }
 
     async GetAllValuesForAttribute(context) {
@@ -329,7 +364,7 @@ class GameUtilitiesService extends Service {
             case 'Command_RealmListRequest_v1_b9': {
                 const owner = await principal(this.models, this.store, context);
                 const accounts = await this.models.GameAccount.findAll({ where: { accountId: owner.accountId, program: 'WoW' } });
-                const regions = new Set(accounts.filter(a => !blocked(a)).map(a => a.region));
+                const regions = new Set(accounts.filter(a => !blocked(a) && (owner.applicationVersion !== 15595 || a.expansion === 3)).map(a => a.region));
                 let subRegionPrefix = '/aurora/services/WoWService/subRegions/';
                 return this.realms.listMetadata(subRegionPrefix).then((subRegions) => {
                     Object.keys(subRegions).forEach((subRegionKey) => {

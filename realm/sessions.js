@@ -31,13 +31,14 @@ function owner(record) {
 class Sessions {
     constructor(store) { this.store = store; }
     async issue(ticket, record) {
-        if (record.version !== 1) { throw new Failure('INVALID_TICKET'); }
+        if (record.version !== 1 || record.auth_protocol === 'wow-15595-v0') { throw new Failure('INVALID_TICKET'); }
         id(record.game_account_id); id(record.account_id);
         const result = await this.store.run(client => client.set(ticketKey(record.realm_uid, ticket), JSON.stringify(record), { NX: true }));
         if (result !== 'OK') { throw new Failure('TICKET_COLLISION'); }
     }
     async claim(ticket, observed, proposed) {
         owner(proposed);
+        if (JSON.parse(observed).auth_protocol === 'wow-15595-v0') { throw new Failure('INVALID_TICKET'); }
         const ticketPath = ticketKey(proposed.realm_uid, ticket), leasePath = leaseKey(proposed.game_account_id);
         return this.store.transaction([ticketPath, leasePath], async client => {
             const existing = await client.get(leasePath);

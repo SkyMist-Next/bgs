@@ -8,21 +8,30 @@ const GameUtilitiesService = require('../services/game_utilities');
 
 const identity = { connectionId: 'test-connection', address: '127.0.0.1' };
 const context = { identity };
-function setup() {
+function setup(build = 26972) {
+    const version = build === 15595 ? { versionMajor: 4, versionMinor: 3, versionRevision: 4, versionBuild: 15595 } : { versionMajor: 7, versionMinor: 3, versionRevision: 5, versionBuild: 26972 };
     const logger = { debug() {}, error() {} };
     const tickets = new Map();
     const metadata = {
         '/aurora/services/WoWService/subRegions/1-1-0/virtualRealms/1-1-1': {
-            update: { name: 'Test', version: { versionMajor: 7, versionMinor: 3, versionRevision: 5, versionBuild: 26972 } },
-            realmUID: '11111111-1111-4111-8111-111111111111', namespace: 'test', expansion: 6, available: true, securityLevel: 0, region: 1, build: 26972, isHidden: true, isTournament: false, deleting: false, endpoints: [{ family: 1, addresses: [] }], gameServerId: 'server'
+            update: { name: 'Test', version },
+            realmUID: '11111111-1111-4111-8111-111111111111', namespace: 'test', expansion: build === 15595 ? 3 : 6, available: true, securityLevel: 0, region: 1, build, isHidden: true, isTournament: false, deleting: false, endpoints: [{ family: 1, addresses: [] }], gameServerId: 'server'
         },
         '/aurora/services/WoWService/subRegions/1-1-0/gameServers/server': { endpoints: [{ family: 1, addresses: [] }] }
     };
     const models = { GameAccountCharacters: { findAll: async () => [] }, GameAccountPrivilege: { findOne: async () => null }, IPBan: { findOne: async () => null }, Account: { findByPk: async () => ({ id: '1' }) },
-        GameAccount: { findAll: async () => [{ region: 1 }], findByPk: async id => ({ id, accountId: '1', region: 1, expansion: 6, program: 'WoW' }) } };
+        GameAccount: { findAll: async () => [{ region: 1 }], findByPk: async id => ({ id, accountId: '1', region: 1, expansion: build === 15595 ? 3 : 6, program: 'WoW', wowLicenseIndex: 2 }) } };
     const store = {
-        run: async operation => operation({ set: async (key, value) => { tickets.set(key, JSON.parse(value)); return 'OK'; } }),
-        getConnectionIdentity: async () => ({ accountId: '1', address: identity.address, applicationVersion: 26972 }),
+        transaction: async (keys, decide) => {
+            const result = await decide({ get: async key => tickets.has(key) ? (typeof tickets.get(key) === 'string' ? tickets.get(key) : JSON.stringify(tickets.get(key))) : null });
+            for (const [op, key, value] of result.commands) {
+                if (op === 'SET') { tickets.set(key, value.startsWith('{') ? JSON.parse(value) : value); }
+                else if (op === 'DEL') { tickets.delete(key); }
+            }
+            return result.result;
+        },
+        run: async operation => operation({ get: async key => tickets.get(key) ?? null, set: async (key, value) => { tickets.set(key, JSON.parse(value)); return 'OK'; } }),
+        getConnectionIdentity: async () => ({ accountId: '1', address: identity.address, applicationVersion: build }),
         setJSON: async (key, value) => tickets.set(key, structuredClone(value)),
         getJSON: async key => {
             if (!tickets.has(key)) { throw new Error('Missing ticket'); }
@@ -163,4 +172,51 @@ test('invalid platform metadata is rejected before writing a RealmList ticket', 
         await assert.rejects(ticket(service, undefined, { platform }), error => error === 10);
         assert.equal(tickets.size, 0);
     }
+});
+
+test('Cataclysm v0 join returns the stable alias and raw key while preserving the independent account ID', async () => {
+    const { service, tickets } = setup(15595);
+    const params = await ticket(service, undefined, { version: { versionMajor: 4, versionMinor: 3, versionRevision: 4, versionBuild: 15595 } });
+    const call = { identity, request: { attribute: [
+        { name: 'Command_RealmJoinRequest_v0_b9', value: { stringValue: '1-1-0' } },
+        { name: 'Param_RealmListTicket', value: params.RealmListTicket },
+        { name: 'Param_RealmAddress', value: { uintValue: Long.fromNumber(0x01010001) } }
+    ] }, response: {} };
+    assert.equal(await service.ProcessClientRequest(call), 0);
+    const response = Object.fromEntries(call.response.attribute.map(a => [a.name, a.value]));
+    assert.equal(response.Param_RealmAccountName.stringValue, '1#2');
+    assert.equal(response.Param_RealmSessionKey.blobValue.length, 40);
+    assert.equal(response.Param_RealmJoinTicket.blobValue.length, 20);
+    assert.equal(response.Param_JoinSecret, undefined);
+    const record = [...tickets.values()].find(value => value.auth_protocol === 'wow-15595-v0');
+    assert.equal(record.game_account_id, '9007199254740993');
+    assert.equal(record.account_id, '1');
+    assert.equal(record.wow_license_index, 2);
+    assert.equal(record.realm_key, response.Param_RealmSessionKey.blobValue.toString('hex'));
+    assert.equal(record.expires_at_ms - record.issued_at_ms, 60000);
+    assert.equal(record.client_secret, undefined);
+});
+
+test('wire dispatch rejects unsupported versions, duplicate attributes, wrong types and cross-build joins before issuance', async () => {
+    const { service, tickets } = setup();
+    const params = await ticket(service);
+    const attributes = [
+        { name: 'Command_RealmJoinRequest_v1_b9', value: { stringValue: '1-1-0' } },
+        { name: 'Param_RealmListTicket', value: params.RealmListTicket },
+        { name: 'Param_RealmAddress', value: { uintValue: Long.fromNumber(0x01010001) } }
+    ];
+    const call = list => service.ProcessClientRequest({ identity, request: { attribute: list }, response: {} });
+    for (const version of ['v2_b9', 'v1_b8']) {
+        await assert.rejects(call([{ ...attributes[0], name: 'Command_RealmJoinRequest_' + version }, ...attributes.slice(1)]), error => error === 0x84D3);
+    }
+    await assert.rejects(call([{ ...attributes[0], name: 'Command_RealmJoinRequest_v0_b9' }, ...attributes.slice(1)]), error => error === 10);
+    for (const list of [[...attributes, attributes[0]], [...attributes, attributes[1]],
+        [attributes[0], { ...attributes[1], value: { stringValue: 'not-a-blob' } }, attributes[2]],
+        [attributes[0], attributes[1], { ...attributes[2], value: { uintValue: Long.fromString('4294967297') } }],
+        [{ ...attributes[0], value: { stringValue: '2-1-0' } }, ...attributes.slice(1)],
+        [attributes[0], { ...attributes[1], value: { blobValue: Buffer.alloc(19) } }, attributes[2]]]) {
+        await assert.rejects(call(list), error => error === 10);
+    }
+    assert.equal([...tickets.values()].filter(v => v.join_secret || v.realm_key).length, 0);
+    assert.equal(await call(attributes), 0);
 });
