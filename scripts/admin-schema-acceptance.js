@@ -11,7 +11,7 @@ async function main() {
         const q = sql.getQueryInterface();
         await q.createTable('SequelizeMeta', { name: { type: Sequelize.STRING(255), primaryKey: true, allowNull: false } });
         const files = fs.readdirSync(require('node:path').join(__dirname, '../migrations')).filter(f => f.endsWith('.js')).sort();
-        for (const file of files.filter(f => !f.startsWith('20261102'))) {
+        for (const file of files.filter(f => !f.startsWith('20261102') && !f.startsWith('20261108'))) {
             await require('../migrations/' + file).up(q, Sequelize);
             await q.bulkInsert('SequelizeMeta', [{ name: file }]);
         }
@@ -25,6 +25,10 @@ async function main() {
         await migration.up(q, Sequelize);
         await migration.up(q, Sequelize); // DDL interruption recovery is additive and idempotent.
         await q.bulkInsert('SequelizeMeta', [{ name: '20261102000000-administration.js' }]);
+        const index = require('../migrations/20261108000000-admin-request-list-index');
+        await index.up(q);
+        await index.up(q);
+        await q.bulkInsert('SequelizeMeta', [{ name: '20261108000000-admin-request-list-index.js' }]);
     }
     finally { await sql.close(); }
 }
