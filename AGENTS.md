@@ -45,3 +45,17 @@ Use concise imperative commit subjects; historical conventions are unverified. P
 ## Configuration & Secrets
 
 Startup requires MySQL, RabbitMQ, Redis with Sentinel, `config/database.json`, and `config/winston.json`. Set `REDIS_SENTINELS` (JSON host/port array), `REDIS_MASTER_NAME`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, and `RABBITMQ_SERVICE_NAME`. Redis/Sentinel credentials and TLS options are documented in README.md. Login tickets expire after five minutes; realm tickets retain their existing lifetime. Development TLS uses `certs/tls.key` and `certs/tls.crt`. Keep credentials and private keys uncommitted; configuration and certificate directories are ignored.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in this repository's GitHub Issues. Before tracker operations, read `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five default triage labels. Before triage or label changes, read `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: root `GLOSSARY.md` and `docs/adr/`. Before exploring the domain, read `docs/agents/domain.md`.
