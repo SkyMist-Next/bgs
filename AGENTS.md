@@ -40,6 +40,8 @@ Use Node's built-in test runner (`npm test`); no coverage threshold is configure
 
 ## Commit & Pull Request Guidelines
 
+Always merge pull requests using **Rebase and merge** (`gh pr merge --rebase`).
+
 Use concise imperative commit subjects; historical conventions are unverified. PRs should describe behavior changes, link relevant issues, document configuration/schema changes, and provide validation commands, results, performance comparisons where relevant, and explicit gaps.
 
 ## Configuration & Secrets
