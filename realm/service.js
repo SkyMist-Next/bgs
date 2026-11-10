@@ -3,6 +3,7 @@ const { Op, fn, col } = require('sequelize');
 const { Failure, fingerprint, canonical, MAX_RESERVATION_BYTES } = require('./contract');
 const { blocked, privilege, checkIP } = require('../utils/admin-state');
 const { owner: sessionOwner } = require('./sessions');
+const { requireProof, wireProof, metadata } = require('../utils/authenticator');
 const { licenseIndex } = require('../utils/wow-license');
 const json = value => typeof value === 'string' ? JSON.parse(value) : value;
 
@@ -35,6 +36,8 @@ class RealmService {
             persistence = Boolean(permit && Number(permit.build) === lease.build && Number(permit.expansion) === game.expansion);
         }
         if (!persistence) {
+            try { requireProof(account, wireProof(lease), this.clock()); }
+            catch { throw new Failure('AUTHENTICATION_REVOKED'); }
             try {
                 await checkIP(this.models, lease.address, this.clock(), { transaction });
                 if (request.operation === 'account.policy') { await checkIP(this.models, request.arguments.address, this.clock(), { transaction }); }
@@ -54,6 +57,10 @@ class RealmService {
             realm.expansion !== game.expansion || realm.region !== game.region || realm.build !== lease.build || security < realm.security_level)) { throw new Failure('REALM_UNAVAILABLE'); }
         const policy = { game_account_id: String(game.id), account_id: String(game.accountId), expansion: game.expansion,
             security_level: security, region: game.region, display_name: game.displayName || String(game.id) };
+        const authentication = metadata(account);
+        policy.credential_version = authentication.credentialVersion;
+        policy.authenticator_generation = authentication.authenticatorGeneration;
+        policy.authenticator_verified_at = wireProof(lease).authenticatorVerifiedAt;
         if (lease.build === 15595) {
             try { policy.wow_license_index = licenseIndex(game.wowLicenseIndex); }
             catch { throw new Failure('ACCOUNT_IDENTITY_INVALID'); }
@@ -182,11 +189,24 @@ class RealmService {
             revisions: status === 'committed' ? changes.map(change => ({ domain: change.domain, key: change.key, revision: String(BigInt(change.revision) + 1n) })) : [] };
     }
     async execute(request) {
+        if (request.operation === 'guild.publish') { return require('./guild')(this, request); }
         if (['process.claim', 'process.check'].includes(request.operation)) { return require('./processes')(this, request); }
-        if (['realm.probe', 'realm.catalog', 'state.pending'].includes(request.operation)) {
+        if (['realm.probe', 'realm.catalog', 'realm.authenticators', 'state.pending'].includes(request.operation)) {
             if (Date.parse(request.deadline) <= this.clock()) { throw new Failure('DEADLINE_EXPIRED'); }
             const realm = await this.authorizeRealm(request);
             let result = { build: realm.build, expansion: realm.expansion };
+            if (request.operation === 'realm.authenticators') {
+                const process = await this.models.RealmProcessOwner.findByPk(realm.realm_uid, { raw: true });
+                if (!realm.available || realm.pod_uid !== request.realm.pod_uid || realm.instance_id !== request.realm.instance_id ||
+                    !process || process.instance_id !== request.realm.instance_id) { throw new Failure('PROCESS_OWNERSHIP_LOST'); }
+                // One SQL snapshot exposes enrollment metadata only, including offline members.
+                const [items] = await this.models.sequelize.query(`SELECT CAST(g.id AS CHAR) game_account_id,
+                    CAST(a.id AS CHAR) account_id, CAST(a.authenticator_generation AS CHAR) generation,
+                    a.authenticator_state state FROM game_accounts g JOIN accounts a ON a.id=g.account_id
+                    WHERE g.id IN (:ids) AND g.program='WoW' AND g.expansion=:expansion AND g.region=:region`,
+                { replacements: { ids: request.arguments.game_accounts, expansion: realm.expansion, region: realm.region } });
+                result = { items };
+            }
             if (request.operation === 'realm.catalog') {
                 const items = (await this.realmDirectory.rows()).filter(row => row.build === realm.build && row.expansion === realm.expansion && row.realm_uid > request.arguments.after)
                     .sort((a, b) => a.realm_uid.localeCompare(b.realm_uid)).slice(0, request.arguments.limit)

@@ -25,6 +25,7 @@ async function main() {
         await migration.up(q, Sequelize);
         await migration.up(q, Sequelize); // DDL interruption recovery is additive and idempotent.
         await q.bulkInsert('SequelizeMeta', [{ name: '20261102000000-administration.js' }]);
+        await require('./guild-acceptance')(sql);
         const index = require('../migrations/20261108000000-admin-request-list-index');
         await index.up(q);
         await index.up(q);

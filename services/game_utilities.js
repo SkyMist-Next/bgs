@@ -242,6 +242,9 @@ class GameUtilitiesService extends Service {
                     realm_uid: realmUid,
                     game_account_id: String(game.id),
                     account_id: String(game.accountId),
+                    credential_version: String(listTicketInfo.owner.credentialVersion ?? 1),
+                    authenticator_generation: String(listTicketInfo.owner.authenticatorGeneration ?? 0),
+                    authenticator_verified_at: Number(listTicketInfo.owner.authenticatorVerifiedAt ?? 0),
                     expansion: game.expansion,
                     build: selectedRealm.build,
                     region: game.region,
@@ -281,6 +284,8 @@ class GameUtilitiesService extends Service {
     async validateTicket(ticket, context) {
         const owner = await principal(this.models, this.store, context);
         if (!ticket?.owner || ticket.owner.connectionId !== owner.connectionId || ticket.owner.accountId !== owner.accountId || ticket.owner.address !== owner.address) { throw 0xA; }
+        if (String(ticket.owner.credentialVersion ?? 1) !== String(owner.credentialVersion ?? 1) ||
+            String(ticket.owner.authenticatorGeneration ?? 0) !== String(owner.authenticatorGeneration ?? 0)) { throw 0xA; }
         const game = await gameAccount(this.models, owner, ticket.identity.gameAccountId);
         if (game.region !== ticket.identity.gameAccountRegion || (owner.applicationVersion && owner.applicationVersion !== ticket.info.version.versionBuild)) { throw 0xA; }
     }

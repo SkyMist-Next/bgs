@@ -776,3 +776,11 @@ Build 15595 uses expansion-3 licenses, persisted native aliases and the explicit
 before updating writers. [The Cataclysm contract](docs/cataclysm-15595.md) describes
 allocation/backfill, immutable identity, the raw 40-byte key, 60-second Redis
 supersession/claim semantics and the separate service/native validation gates.
+
+## Guild authentication and relocation
+
+The BGS-owned authenticator and guild publication contracts are described in
+[the core integration guide](../cataclysm-core/docs/guild-bgs-integration.md).
+Run both new BGS migrations before enabling operator guild transfers. REST and
+private admin share the enrollment encryption key; realm workers receive only
+non-secret enrollment metadata.

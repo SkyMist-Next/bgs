@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
+const { wireProof, sameProof } = require('../utils/authenticator');
 const { id, Failure } = require('./contract');
 const { realmPrefix, ticketKey, leaseKey, owner } = require('./sessions');
 const { realmAccountName, parseRealmAccountName } = require('../utils/wow-license');
@@ -12,6 +13,7 @@ function pendingKey(uid, name) {
 }
 function validateTicket(record) {
     try {
+        wireProof(record);
         id(record.game_account_id); id(record.account_id); realmPrefix(record.realm_uid);
         if (record.version !== 1 || record.auth_protocol !== 'wow-15595-v0' || record.build !== 15595 || record.expansion !== 3 ||
             !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(record.namespace) || record.namespace.length > 63 ||
@@ -67,7 +69,7 @@ class CataclysmSessions {
         const record = validateTicket(JSON.parse(observed));
         const expected = worldProof(record.realm_account_name, Buffer.from(record.realm_key, 'hex'), clientSeed, serverSeed);
         if (!Buffer.isBuffer(proof) || proof.length !== expected.length || !crypto.timingSafeEqual(proof, expected)) { throw new Failure('INVALID_15595_PROOF'); }
-        if (!['namespace', 'realm_uid', 'game_account_id', 'account_id', 'expansion', 'build'].every(key => record[key] === proposed[key]) || proposed.generation !== '0') {
+        if (!['namespace', 'realm_uid', 'game_account_id', 'account_id', 'expansion', 'build'].every(key => record[key] === proposed[key]) || proposed.generation !== '0' || !sameProof(record, proposed)) {
             throw new Failure('TICKET_IDENTITY_MISMATCH');
         }
         const path = ticketKey(proposed.realm_uid, ticket), pending = pendingKey(proposed.realm_uid, record.realm_account_name), lease = leaseKey(proposed.game_account_id);
@@ -75,7 +77,7 @@ class CataclysmSessions {
             const existing = await client.get(lease);
             if (existing) {
                 const active = owner(JSON.parse(existing));
-                if (!OWNER_FIELDS.every(key => active[key] === proposed[key])) { throw new Failure('SESSION_ALREADY_ACTIVE'); }
+                if (!OWNER_FIELDS.every(key => active[key] === proposed[key]) || !sameProof(active, proposed)) { throw new Failure('SESSION_ALREADY_ACTIVE'); }
                 return { commands: [], result: active };
             }
             if (record.expires_at_ms <= this.clock() || record.issued_at_ms > this.clock()) { throw new Failure('TICKET_EXPIRED'); }
