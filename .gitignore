@@ -5,3 +5,6 @@ certs
 /tls.crt
 /tls.key
 config
+
+__pycache__/
+*.pyc

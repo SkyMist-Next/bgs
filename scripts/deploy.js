@@ -49,7 +49,7 @@ async function bootstrap() {
                 '@' + env.DB_HOST + ':3306/' + encodeURIComponent(env.DB_NAME);
         }
         const created = await api('POST', path, { apiVersion: 'v1', kind: 'Secret',
-            metadata: { name: entry.name, labels: { 'app.kubernetes.io/instance': env.RELEASE_NAME } }, stringData: values });
+            metadata: { name: entry.name, annotations: { 'argocd.argoproj.io/sync-options': 'Prune=false,Delete=false' }, labels: { 'app.kubernetes.io/instance': env.RELEASE_NAME } }, stringData: values });
         if (![201, 409].includes(created.status)) { throw new Error('Secret creation failed'); }
     }
 }

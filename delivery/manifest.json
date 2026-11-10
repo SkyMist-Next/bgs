@@ -1,0 +1,33 @@
+{
+  "service": "bgs",
+  "deploymentContract": 1,
+  "provides": {
+    "account-schema": 1,
+    "admin-request-protocol": 1,
+    "battlenet-15595": 1,
+    "battlenet-26972": 1
+  },
+  "requires": {
+    "operator": {
+      "realm-directory-schema": 4
+    }
+  },
+  "schemaMigrations": [
+    "20180807123421-create-account.js",
+    "20180807124823-create-game-account.js",
+    "20180807151827-add-account-id.js",
+    "20180904090832-add-expansion.js",
+    "20180904090839-add-billing.js",
+    "20180909163237-add-tutorial-data.js",
+    "20261102000000-administration.js",
+    "20261103000000-realm-gameplay.js",
+    "20261103000001-immutable-game-expansion.js",
+    "20261103000002-realm-permissions.js",
+    "20261103000003-staged-realm-reservations.js",
+    "20261103000004-realm-process-permits.js",
+    "20261103000005-game-account-options.js",
+    "20261103000006-account-restoration.js",
+    "20261105000000-wow-license-identity.js",
+    "20261108000000-admin-request-list-index.js"
+  ]
+}

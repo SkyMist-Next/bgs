@@ -1,0 +1,44 @@
+name: Service image delivery
+on:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+concurrency:
+  group: image-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: bgs
+    container: ubuntu:24.04
+    environment: skymist-publish
+    timeout-minutes: 45
+    env:
+      BUILDKIT_HOST: tcp://buildkitd.skymist-buildkit.svc.cluster.local:1234
+      BUILDKIT_TLS_DIRECTORY: /tmp/service-buildkit-tls
+      DOCKER_CONFIG: /tmp/service-registry
+      REGISTRY_AUTH_FILE: /tmp/service-registry/config.json
+    steps:
+      - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with: {fetch-depth: 0, persist-credentials: false}
+      - run: bash delivery/install-tools.sh
+      - name: Test before publication
+        run: bash delivery/test.sh
+      - name: Configure publisher
+        env:
+          BUILDKIT_CA: ${{ secrets.BUILDKIT_CA }}
+          BUILDKIT_CERT: ${{ secrets.BUILDKIT_CERT }}
+          BUILDKIT_KEY: ${{ secrets.BUILDKIT_KEY }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+        run: python delivery/credentials.py
+      - run: python delivery/build.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: delivery-candidate
+          path: candidate.json
+          retention-days: 90
+          if-no-files-found: error
+      - if: always()
+        run: python delivery/credentials.py --remove
