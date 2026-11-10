@@ -1,9 +1,10 @@
 'use strict';
+const { wireProof, sameProof } = require('../utils/authenticator');
 const { id, Failure } = require('./contract');
 const { canonicalIP } = require('../utils/admin-state');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const OWNER_FIELDS = ['namespace', 'realm_uid', 'pod_uid', 'instance_id', 'game_account_id', 'account_id', 'session_id', 'build', 'expansion', 'address'];
-function sameOwner(actual, expected) { return OWNER_FIELDS.every(key => actual[key] === expected[key]); }
+function sameOwner(actual, expected) { return OWNER_FIELDS.every(key => actual[key] === expected[key]) && sameProof(actual, expected); }
 function requireOwner(raw, expected) {
     if (!raw) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
     const actual = owner(JSON.parse(raw));
@@ -23,6 +24,7 @@ function owner(record) {
     if (!record || record.version !== 1 || !['realm_uid', 'pod_uid', 'instance_id', 'session_id'].every(key => UUID.test(record[key])) ||
         !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(record.namespace) || record.namespace.length > 63) { throw new Failure('INVALID_SESSION'); }
     id(record.game_account_id); id(record.account_id); id(record.generation, true);
+    wireProof(record);
     try { if (canonicalIP(record.address) !== record.address) { throw new Error(); } }
     catch { throw new Failure('INVALID_SESSION_ADDRESS'); }
     if (!Number.isInteger(record.build) || record.build <= 0 || !Number.isInteger(record.expansion) || record.expansion < 0 || record.expansion > 127) { throw new Failure('INVALID_SESSION'); }
@@ -50,7 +52,7 @@ class Sessions {
             if (await client.get(ticketPath) !== observed) { throw new Failure('TICKET_UNAVAILABLE'); }
             const record = JSON.parse(observed);
             if (record.version !== 1 || proposed.generation !== '0') { throw new Failure('INVALID_RECORD'); }
-            if (!['namespace', 'realm_uid', 'game_account_id', 'account_id', 'expansion', 'build'].every(key => record[key] === proposed[key])) { throw new Failure('TICKET_IDENTITY_MISMATCH'); }
+            if (!['namespace', 'realm_uid', 'game_account_id', 'account_id', 'expansion', 'build'].every(key => record[key] === proposed[key]) || !sameProof(record, proposed)) { throw new Failure('TICKET_IDENTITY_MISMATCH'); }
             return { commands: [['SET', leasePath, JSON.stringify(proposed), 'EX', '90'], ['DEL', ticketPath]], result: proposed };
         });
     }

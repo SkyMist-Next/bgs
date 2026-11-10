@@ -291,13 +291,36 @@ class RedisStore {
         const fields = await this.run(client => client.hGetAll(LOGIN_PREFIX + ticket));
         return fields.ticket && fields.program ? fields : null;
     }
-    async authorizeLoginTicket(ticket, accountId) {
+    async beginAuthenticator(ticket, accountId, metadata, now = Date.now()) {
+        const key = LOGIN_PREFIX + ticket;
+        const pending = { accountId: String(accountId), ...metadata, expiresAt: Math.floor(now / 1000) + 120,
+            challenge: require('node:crypto').randomBytes(20).toString('hex') };
+        await this.transaction([key], async client => {
+            if (await client.pTTL(key) <= 0) { throw new Error('Expired login ticket'); }
+            const account = await client.hGet(key, 'accountId');
+            if (account && account !== String(accountId)) { throw new Error('Conflicting login ticket'); }
+            return { commands: [['HDEL', key, 'accountId', 'credentialVersion', 'authenticatorGeneration', 'authenticatorVerifiedAt'],
+                ['HSET', key, 'authenticatorPending', JSON.stringify(pending)]] };
+        });
+        return pending;
+    }
+    async authorizeLoginTicket(ticket, accountId, proof = {}, challenge) {
         const key = LOGIN_PREFIX + ticket;
         await this.transaction([key], async client => {
             if (await client.pTTL(key) <= 0) { throw new Error('Expired or conflicting login ticket'); }
             const account = await client.hGet(key, 'accountId');
             if (account && account !== String(accountId)) { throw new Error('Expired or conflicting login ticket'); }
-            return { commands: [['HSET', key, 'accountId', String(accountId)]] };
+            const raw = await client.hGet(key, 'authenticatorPending');
+            if (raw) {
+                const pending = JSON.parse(raw);
+                if (pending.challenge !== challenge || pending.accountId !== String(accountId) ||
+                    pending.expiresAt * 1000 <= Date.now()) { throw new Error('Expired or conflicting authenticator'); }
+            } else if (challenge) { throw new Error('Authenticator already consumed'); }
+            return { commands: [['HSET', key, 'accountId', String(accountId),
+                'credentialVersion', String(proof.credentialVersion ?? 1),
+                'authenticatorGeneration', String(proof.authenticatorGeneration ?? 0),
+                'authenticatorVerifiedAt', String(proof.authenticatorVerifiedAt ?? 0)],
+            ['HDEL', key, 'authenticatorPending']] };
         });
     }
     async close() {

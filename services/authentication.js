@@ -5,6 +5,7 @@
 
 const crypto = require('crypto');
 const { blocked, checkIP } = require('../utils/admin-state');
+const { requireProof } = require('../utils/authenticator');
 
 const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
@@ -55,6 +56,7 @@ class AuthenticationService extends Service {
         let account;
         let gameAccounts;
         let applicationVersion;
+        let proof;
         try {
             const ticket = await this.store.getLoginTicket(loginTicket);
             await checkIP(this.models, context.identity?.address);
@@ -70,6 +72,10 @@ class AuthenticationService extends Service {
                 status = 0x0000000A; // ERROR_NO_AUTH
             }
             else {
+                proof = { credentialVersion: String(ticket.credentialVersion ?? 1),
+                    authenticatorGeneration: String(ticket.authenticatorGeneration ?? 0),
+                    authenticatorVerifiedAt: Number(ticket.authenticatorVerifiedAt ?? 0) };
+                requireProof(account, proof);
                 const program = ticket.program;
                 gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program && !blocked(gameAccount) &&
                     (applicationVersion !== 15595 || (gameAccount.program === 'WoW' && gameAccount.expansion === 3)));
@@ -84,7 +90,7 @@ class AuthenticationService extends Service {
         }
         if (status === 0) {
             try {
-                await this.store.setConnectionIdentity(context.identity.connectionId, { accountId: String(account.id), address: context.identity.address, ...(applicationVersion ? { applicationVersion } : {}) });
+                await this.store.setConnectionIdentity(context.identity.connectionId, { accountId: String(account.id), address: context.identity.address, ...proof, ...(applicationVersion ? { applicationVersion } : {}) });
             }
             catch { status = 1; }
         }

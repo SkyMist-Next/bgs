@@ -71,7 +71,7 @@ function validate(body, properties, now = Date.now()) {
         !['realm_uid', 'pod_uid', 'instance_id'].every(k => UUID.test(request.realm[k])) || !UUID.test(request.session_id)) { throw new Failure('INVALID_IDENTITY'); }
     if (properties.userId !== 'realm-' + request.realm.realm_uid ||
         !new RegExp('^realm\\.reply\\.' + request.realm.realm_uid + '\\.[a-f0-9-]{36}$').test(properties.replyTo || '')) { throw new Failure('UNAUTHORIZED_CALLER'); }
-    id(request.game_account_id, ['realm.probe', 'realm.catalog', 'state.pending', 'process.claim', 'process.check'].includes(request.operation)); id(request.generation, true);
+    id(request.game_account_id, ['realm.probe', 'realm.catalog', 'realm.authenticators', 'guild.publish', 'state.pending', 'process.claim', 'process.check'].includes(request.operation)); id(request.generation, true);
     if (typeof request.deadline !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(request.deadline) || !Number.isFinite(Date.parse(request.deadline))) { throw new Failure('INVALID_DEADLINE'); }
     if (Date.parse(request.deadline) > now + 300000) { throw new Failure('DEADLINE_TOO_DISTANT'); }
     const args = request.arguments;
@@ -81,6 +81,21 @@ function validate(body, properties, now = Date.now()) {
         if (request.game_account_id !== '0' || request.generation !== '0' || typeof args.revision !== 'string' || !/^[a-f0-9]{64}$/.test(args.revision) ||
             !Number.isInteger(args.build) || args.build < 1 || args.build > 4294967295 || !Number.isInteger(args.expansion) || args.expansion < 0 || args.expansion > 127 || !UUID.test(args.epoch) ||
             (request.operation === 'process.claim' && args.previous_epoch !== '' && !UUID.test(args.previous_epoch))) { throw new Failure('INVALID_ARGUMENTS'); }
+        break;
+    case 'guild.publish':
+        exact(args, ['operation_id', 'plan_hash', 'epoch']);
+        if (request.game_account_id !== '0' || request.generation !== '0' ||
+            typeof args.operation_id !== 'string' || !/^[a-f0-9]{32}$/.test(args.operation_id) ||
+            typeof args.plan_hash !== 'string' || !/^[a-f0-9]{64}$/.test(args.plan_hash) ||
+            typeof args.epoch !== 'string' || !/^[a-f0-9]{32}$/.test(args.epoch)) { throw new Failure('INVALID_ARGUMENTS'); }
+        break;
+    case 'realm.authenticators':
+        exact(args, ['game_accounts']);
+        if (request.game_account_id !== '0' || request.generation !== '0' || !Array.isArray(args.game_accounts) ||
+            !args.game_accounts.length || args.game_accounts.length > 100 || new Set(args.game_accounts).size !== args.game_accounts.length) {
+            throw new Failure('INVALID_ARGUMENTS');
+        }
+        args.game_accounts.forEach(value => id(value));
         break;
     case 'realm.probe':
         exact(args, []);
