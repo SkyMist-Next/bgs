@@ -16,7 +16,8 @@ async function issue(service, request, policy, transaction) {
     if (security < target.security_level) { throw new Failure('REALM_UNAVAILABLE'); }
     const ticket = crypto.randomBytes(20).toString('hex'), secret = crypto.randomBytes(32).toString('hex');
     const record = { version: 1, namespace: target.namespace, realm_uid: target.realm_uid, game_account_id: request.game_account_id,
-        account_id: policy.account_id, expansion: policy.expansion, build: target.build, region: target.region, address: args.peer,
+        account_id: policy.account_id, credential_version: policy.credential_version,
+        authenticator_generation: policy.authenticator_generation, authenticator_verified_at: policy.authenticator_verified_at, expansion: policy.expansion, build: target.build, region: target.region, address: args.peer,
         locale: args.locale, platform: args.platform, gm_level: security, client_secret: args.client_secret, join_secret: secret };
     const endpoints = typeof target.endpoints === 'string' ? JSON.parse(target.endpoints) : target.endpoints;
     if (!Array.isArray(endpoints) || Buffer.byteLength(JSON.stringify(endpoints)) > 16384) { throw new Failure('INVALID_REALM_ENDPOINTS'); }

@@ -28,7 +28,10 @@ class RestPlugin {
             await store.setMetadata('/aurora/services/AuthenticationService/WebAuthUrl', this.config.webAuthUrl);
         }
         signal.throwIfAborted();
+        const { Authenticator, loadKey } = require('../../utils/authenticator');
+        this.authenticator = new Authenticator(context.models, loadKey(this.config.env?.BGS_AUTHENTICATOR_KEY_FILE));
         this.app = createRestApp({ ...context, exposeHealth: !this.config.healthPort, trustedProxyCIDRs: this.config.trustedHttpProxyCIDRs || [], compare: this.factories.compare,
+            authenticator: this.authenticator,
             isAccepting: () => this.accepting && context.isAccepting(), track: operation => this.track(operation) });
         this.server = (this.config.tlsEnabled ?? (this.config.environment === 'development'))
             ? require('node:https').createServer(context.tlsOptions, this.app)
@@ -44,9 +47,10 @@ class RestPlugin {
     async drain() {
         while (this.pending.size) { await Promise.allSettled([...this.pending]); }
         this.server?.closeIdleConnections();
+        this.authenticator?.key?.fill(0);
     }
 
-    forceClose() { this.server?.closeAllConnections(); }
+    forceClose() { this.server?.closeAllConnections(); this.authenticator?.key?.fill(0); }
 }
 
 module.exports = RestPlugin;

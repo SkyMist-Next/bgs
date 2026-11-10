@@ -31,6 +31,8 @@ async function principal(models, store, context) {
     await checkIP(models, value.address);
     const account = await models.Account.findByPk(value.accountId);
     if (blocked(account)) { throw 0xA; }
+    try { require('./authenticator').requireProof(account, value); }
+    catch { throw 0xA; }
     return { ...value, connectionId: supplied.connectionId };
 }
 async function gameAccount(models, owner, id) {

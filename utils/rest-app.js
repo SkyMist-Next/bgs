@@ -3,8 +3,9 @@
 const bcrypt = require('bcrypt');
 const express = require('express');
 const { blocked, checkIP } = require('./admin-state');
+const { metadata } = require('./authenticator');
 
-module.exports = function createRestApp({ models, store, logger, isReady, isAccepting = () => true, compare = bcrypt.compare, track = operation => operation(), trustedProxyCIDRs = [], exposeHealth = true }) {
+module.exports = function createRestApp({ models, store, logger, authenticator, isReady, isAccepting = () => true, compare = bcrypt.compare, track = operation => operation(), trustedProxyCIDRs = [], exposeHealth = true }) {
     const rest = express();
     rest.use((req, res, next) => {
         const started = process.hrtime.bigint();
@@ -64,6 +65,24 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
             !input || typeof input !== 'object' || typeof input.input_id !== 'string')) {
             return res.sendStatus(400);
         }
+        if (!isAccepting()) { return res.sendStatus(500); }
+        const ticket = await store.getLoginTicket(req.params.loginTicket);
+        if (!ticket) { return res.sendStatus(500); }
+        await checkIP(models, ticket.address);
+        const codes = inputs.filter(input => input.input_id === 'authenticator_token');
+        if (codes.length) {
+            if (codes.length !== 1 || inputs.length !== 1 || !/^[0-9]{8}$/.test(codes[0].value) || typeof codes[0].value !== 'string') {
+                return res.sendStatus(400);
+            }
+            if (!ticket.authenticatorPending || !authenticator) { return res.json({ authentication_state: 'LOGIN' }); }
+            const pending = JSON.parse(ticket.authenticatorPending);
+            const account = await models.Account.findByPk(pending.accountId);
+            if (blocked(account) || pending.expiresAt * 1000 <= Date.now()) { return res.json({ authentication_state: 'LOGIN' }); }
+            const proof = await authenticator.verify(account, pending, codes[0].value);
+            if (!proof) { return res.json({ authentication_state: 'TOKEN' }); }
+            await store.authorizeLoginTicket(req.params.loginTicket, account.id, proof, pending.challenge);
+            return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
+        }
         const names = inputs.filter(input => input.input_id === 'account_name');
         const passwords = inputs.filter(input => input.input_id === 'password');
         if (names.length !== 1 || passwords.length !== 1 ||
@@ -72,18 +91,18 @@ module.exports = function createRestApp({ models, store, logger, isReady, isAcce
             return res.sendStatus(400);
         }
 
-        if (!isAccepting()) { return res.sendStatus(500); }
-        const ticket = await store.getLoginTicket(req.params.loginTicket);
-        if (!ticket) {
-            return res.sendStatus(500);
-        }
         // The frontend records the client address; the HTTPS peer may be a gateway.
-        await checkIP(models, ticket.address);
         const account = await models.Account.findOne({ where: { email: names[0].value } });
         if (blocked(account) || !await compare(passwords[0].value, account.hash)) {
             return res.json({ authentication_state: 'LOGIN' });
         }
-        await store.authorizeLoginTicket(req.params.loginTicket, account.id);
+        const state = metadata(account);
+        if (state.authenticatorState === 2) {
+            if (!authenticator?.key) { throw new Error('Authenticator unavailable'); }
+            await store.beginAuthenticator(req.params.loginTicket, account.id, state);
+            return res.json({ authentication_state: 'TOKEN' });
+        }
+        await store.authorizeLoginTicket(req.params.loginTicket, account.id, state);
         return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
     }));
 
