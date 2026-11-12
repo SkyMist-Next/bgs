@@ -193,7 +193,8 @@ Missing web-auth configuration makes RPC Logon fail without issuing a challenge.
 | --- | --- | --- |
 | Service hashes, login URL, realm/server catalog | Hash `/aurora/metadata`; fields are the old `/aurora/services/...` paths | Persistent |
 | Login ticket | Hash `/aurora/services/AuthenticationService/loginTickets/<ticket>` with `ticket`, `program`, optional `accountId` | 300 seconds from creation |
-| Realm-list / realm-join ticket | JSON string at `/aurora/services/GameUtilitiesService/realmListTickets/<hex>` or `realmJoinTickets/<hex>` | Persistent, preserving previous behavior |
+| Realm-list ticket | JSON string at `/aurora/services/GameUtilitiesService/realmListTickets/<hex>` | 300 seconds from creation |
+| Realm-join ticket | JSON string at `/skymist/v1/realms/<realm_uid>/tickets/<hex>` | 60 seconds from issue; claiming it deletes it |
 
 Login-ticket creation and expiry are atomic. Binding an account checks that the
 ticket is still live and never extends its expiry. Repeating the same binding is

@@ -226,7 +226,9 @@ class RedisStore {
         if (value === null) { throw new Error('Missing realm ticket'); }
         return JSON.parse(value);
     }
-    setJSON(path, value) { return this.run(client => client.set(path, JSON.stringify(value))); }
+    setJSON(path, value, seconds) {
+        return this.run(client => client.set(path, JSON.stringify(value), ...(seconds ? [{ EX: seconds }] : [])));
+    }
     transaction(keys, decide) {
         const deadline = Date.now() + this.operationTimeout;
         return this.run(sentinel => this.transactionClient(sentinel.commandOptions, client => watched(client, keys, decide, deadline)));

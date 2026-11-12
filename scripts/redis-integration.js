@@ -123,8 +123,9 @@ async function main() {
     await second.authorizeLoginTicket('shared', authorized.accountId);
     assert.ok(await direct.pTTL(LOGIN_PREFIX + 'shared') <= originalTTL);
     assert.deepEqual(await first.getLoginTicket('shared'), authorized);
-    await first.setJSON('/aurora/services/GameUtilitiesService/realmListTickets/example', { identity: '9007199254740993' });
-    assert.equal(await direct.ttl('/aurora/services/GameUtilitiesService/realmListTickets/example'), -1);
+    await first.setJSON('/aurora/services/GameUtilitiesService/realmListTickets/example', { identity: '9007199254740993' }, 300);
+    const listTicketTTL = await direct.ttl('/aurora/services/GameUtilitiesService/realmListTickets/example');
+    assert.ok(listTicketTTL > 0 && listTicketTTL <= 300, 'Realm-list ticket must expire');
     assert.deepEqual(await second.getJSON('/aurora/services/GameUtilitiesService/realmListTickets/example'), { identity: '9007199254740993' });
     await first.setMetadata('/aurora/services/AuthenticationService/hash', 0x0decfc01);
     await first.setMetadata('/aurora/services/AuthenticationService/WebAuthUrl', 'https://example.test/login/');

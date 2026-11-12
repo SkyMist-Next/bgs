@@ -46,7 +46,8 @@ async function main() {
             locale: 'enUS', platform: 'Win', gm_level: 3 };
         await sessions.issue(ticket, record);
         const observed = await redis.get(ticketKey(owner.realm_uid, ticket));
-        assert.equal(await redis.ttl(ticketKey(owner.realm_uid, ticket)), -1, 'Ticket lifetime changed');
+        const ticketTTL = await redis.ttl(ticketKey(owner.realm_uid, ticket));
+        assert.ok(ticketTTL > 0 && ticketTTL <= 60, 'Join ticket must expire within 60 seconds');
         await assert.rejects(sessions.claim(ticket, observed, { ...owner, build: 1 }), /TICKET_IDENTITY_MISMATCH/);
         const claims = await Promise.allSettled([
             sessions.claim(ticket, observed, owner), sessions.claim(ticket, observed, { ...owner, session_id: crypto.randomUUID() })

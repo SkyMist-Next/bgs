@@ -2,6 +2,8 @@
 const { wireProof, sameProof } = require('../utils/authenticator');
 const { id, Failure } = require('./contract');
 const { canonicalIP } = require('../utils/admin-state');
+// Realm join tickets are claimed by the realm process within this lifetime (both builds).
+const JOIN_TICKET_SECONDS = 60;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 // A claimant is the process and authenticated client that proposed a lease;
 // replaying the same claim is idempotent, any other claimant is rejected.
@@ -70,7 +72,7 @@ class Sessions {
     async issue(ticket, record) {
         if (record.version !== 1 || record.auth_protocol === 'wow-15595-v0') { throw new Failure('INVALID_TICKET'); }
         id(record.game_account_id); id(record.account_id);
-        const result = await this.store.run(client => client.set(ticketKey(record.realm_uid, ticket), JSON.stringify(record), { NX: true }));
+        const result = await this.store.run(client => client.set(ticketKey(record.realm_uid, ticket), JSON.stringify(record), { NX: true, EX: JOIN_TICKET_SECONDS }));
         if (result !== 'OK') { throw new Failure('TICKET_COLLISION'); }
     }
     async claim(ticket, observed, proposed) {
@@ -143,4 +145,4 @@ class Sessions {
         });
     }
 }
-module.exports = { Sessions, WorldSessionLeases, readLease, sameClaimant, sameWorld, ticketKey, leaseKey, realmPrefix, owner };
+module.exports = { JOIN_TICKET_SECONDS, Sessions, WorldSessionLeases, readLease, sameClaimant, sameWorld, ticketKey, leaseKey, realmPrefix, owner };

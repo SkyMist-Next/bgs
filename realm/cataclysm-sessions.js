@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const { wireProof, sameProof } = require('../utils/authenticator');
 const { id, Failure } = require('./contract');
-const { realmPrefix, ticketKey, leaseKey, owner, sameClaimant } = require('./sessions');
+const { JOIN_TICKET_SECONDS, realmPrefix, ticketKey, leaseKey, owner, sameClaimant } = require('./sessions');
 const { realmAccountName, parseRealmAccountName } = require('../utils/wow-license');
 const { canonicalIP } = require('../utils/admin-state');
 
@@ -19,7 +19,7 @@ function validateTicket(record) {
             record.realm_account_name !== realmAccountName(record.account_id, record.wow_license_index) ||
             !/^[a-f0-9]{80}$/.test(record.realm_key) || Object.hasOwn(record, 'client_secret') || Object.hasOwn(record, 'join_secret') ||
             !Number.isSafeInteger(record.issued_at_ms) || record.issued_at_ms < 0 ||
-            record.expires_at_ms !== record.issued_at_ms + 60000 || !Number.isSafeInteger(record.expires_at_ms) ||
+            record.expires_at_ms !== record.issued_at_ms + JOIN_TICKET_SECONDS * 1000 || !Number.isSafeInteger(record.expires_at_ms) ||
             !Number.isInteger(record.region) || record.region < 1 || record.region > 255 ||
             !Number.isInteger(record.gm_level) || record.gm_level < 0 || record.gm_level > 255 ||
             typeof record.locale !== 'string' || !/^[a-z]{2}[A-Z]{2}$/.test(record.locale) ||
