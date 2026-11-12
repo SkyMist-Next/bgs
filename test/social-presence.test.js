@@ -6,6 +6,7 @@ const Presence = require('../services/presence');
 const wire = require('../social/wire');
 const p = require('../social/presence-wire');
 const { SocialError } = require('../social/errors');
+const { fakeSession } = require('./support/social-session');
 const A = '9007199254740993', B = '9007199254740995', G = '9007199254740997';
 const OBJ = '18446744073709551615';
 function fixture() {
@@ -27,13 +28,15 @@ function fixture() {
     };
     const projectors = new Map();
     const runtime = {
-        owner: async () => owner, register: (kind, projector) => projectors.set(kind, projector),
+        // Selections persist on the fixture owner, as they do on the stored client session.
+        session: async context => fakeSession(owner, { context, calls: subscriptions, methods: session => ({
+            selectGame: async selected => { owner.gameAccountId = session.gameAccountId = selected; return session; }
+        }) }),
+        register: (kind, projector) => projectors.set(kind, projector),
         sessionBlocked: async () => control.sessionBlocked,
-        selectGame: async (current, selected) => { current.gameAccountId = selected; },
         graph: { assertAccess: async () => { if (!control.friends) { throw new SocialError('NOT_FRIENDS'); } },
             project: async (actor, target) => actor === target || control.friends ? { realIdVisible: control.rid, fullName: control.rid ? 'Private Name' : '' } : null },
-        recipients: async () => [], current: async () => null,
-        subscribe: async (...args) => subscriptions.push(args), unsubscribe: async (...args) => subscriptions.push(args)
+        recipients: async () => [], current: async () => null
     };
     const worldPresence = { session: async () => control.online ? {} : null,
         get: async () => control.online ? { character: control.character } : null };
@@ -69,7 +72,7 @@ test('presence join/delta uses ChannelState extension 101 and clears all fields 
     const result = await rpc(f, 'Subscribe', { entityId: wire.account(B), objectId: OBJ, program: [p.BN] });
     assert.equal(result.status, 0);
     const call = f.subscriptions.at(-1);
-    const row = { objectId: OBJ, filter: call[5] };
+    const row = { objectId: OBJ, filter: call[4] };
     const projector = f.projectors.get('presence');
     const snapshot = await projector.snapshot(f.owner, row);
     const join = projector.diff(null, snapshot, row)[0];

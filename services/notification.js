@@ -1,7 +1,6 @@
 'use strict';
 
 const Service = require('./service');
-const { ClientSessions } = require('../utils/client-sessions');
 const { SocialError } = require('../social/errors');
 const { account, accountId, notification, textAttribute, id } = require('../social/wire');
 
@@ -13,7 +12,6 @@ class NotificationService extends Service {
     constructor(dependencies) {
         super('NotificationService', 'proto/bgs/low/pb/client/notification_service.proto', dependencies);
         Object.assign(this, { runtime: dependencies.runtime, models: dependencies.models });
-        this.sessions = new ClientSessions(dependencies.runtime.store, dependencies.models);
         this.confirmReplies = true;
         this.registerHandler('SendNotification', this.send.bind(this));
     }
@@ -38,7 +36,7 @@ class NotificationService extends Service {
         if (!allowed) { throw 0xBBA; } // ERROR_RPC_TOO_MANY_REQUESTS
     }
     async send(context) {
-        const owner = await this.runtime.owner(context), request = context.request;
+        const owner = await this.runtime.session(context), request = context.request;
         const parentId = id(owner.accountId);
         if (request.type !== 'WHISPER') { throw 0x6595; }
         if (request.targetId?.high?.toString() !== SYSTEM_HIGH || request.targetId?.low?.toString() !== '0') { throw 0xBC5; }
@@ -48,7 +46,7 @@ class NotificationService extends Service {
         // Subscribe; authenticated world routes already carry their selected license.
         if (!owner.gameAccountId) { throw 0xA; }
         const selectedId = id(owner.gameAccountId);
-        const sender = await this.sessions.ownedGame(owner, selectedId);
+        const sender = await owner.selectedGame();
         if (request.senderId) {
             if (id(request.senderId.low) !== selectedId ||
                 sender.entityId.high.toString() !== request.senderId.high?.toString()) { throw 0xA; }

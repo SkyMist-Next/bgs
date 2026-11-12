@@ -9,6 +9,8 @@ const { watched } = require('../utils/redis-transaction');
 const wire = require('../social/wire');
 const { SocialError } = require('../social/errors');
 const { fixture } = require('./support/social-graph-fixture');
+const { fakeSession } = require('./support/social-session');
+const { ClientSessions } = require('../utils/client-sessions');
 
 const A = '9007199254740993', B = '9007199254740995', C = '9223372036854775807';
 const GAME = '9007199254741001', OTHER_GAME = '9007199254741003', FOREIGN_GAME = '9007199254741005';
@@ -77,7 +79,15 @@ function setup(store = redis()) {
     const state = { rows: [], notify: null };
     const models = { GameAccount: { findByPk: async id => games.get(id) || null }, Account: { findByPk: async () => profile } };
     const runtime = {
-        store, owner: async context => { if (context.unauthenticated) { throw 0xA; } return owner; },
+        store,
+        session: async context => {
+            if (context.unauthenticated) { throw 0xA; }
+            // The sender's license is judged exactly as the client session judges it.
+            return fakeSession(owner, { context, methods: session => ({ selectedGame: async () => {
+                if (!session.gameAccountId) { throw 0xA; }
+                return new ClientSessions(store, models).ownedGame(session, session.gameAccountId);
+            } }) });
+        },
         graph: { assertAccess: async (...args) => access.push(args) },
         sessionBlocked: async (sessionKey, parent) => { blocks.push([sessionKey, parent]); return blocked.has(sessionKey + ':' + parent); },
         recipients: async (parent, kind) => { assert.equal(parent, B); assert.equal(kind, 'friends'); return state.rows; },

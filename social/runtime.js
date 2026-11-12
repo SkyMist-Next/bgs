@@ -9,6 +9,7 @@ const { requireProof, wireProof } = require('../utils/authenticator');
 const { SocialGraph, LIMITS, assertBlockCapacity } = require('./graph');
 const { uint64, id } = require('./wire');
 const { WorldSessionLeases, sameWorld } = require('../realm/sessions');
+const { SocialSession } = require('./session');
 const trusted = Symbol('authenticated world social route');
 // Graph caps include 200 notes/invitations and escaped UTF-8 text; an entire authorized
 // snapshot can exceed the single-frame limit. Individual wire frames remain capped separately.
@@ -100,11 +101,16 @@ class SocialRuntime {
         }
         if (rows.length < limit) { this.routeCursor = ''; }
     }
-    async owner(context) {
-        if (context[trusted]) { return context[trusted]; }
-        const owner = await this.sessions.resolve(context);
-        return { ...owner, sessionKey: 'c:' + owner.connectionId,
-            route: { type: 'connection', connectionId: owner.connectionId, address: owner.address, queueName: context.queueName } };
+    // The calling RPC's social session: a trusted world route or the client session.
+    async session(context) {
+        let owner = context[trusted];
+        if (!owner) {
+            const client = await this.sessions.resolve(context);
+            owner = { ...client, sessionKey: 'c:' + client.connectionId,
+                route: { type: 'connection', connectionId: client.connectionId, address: client.address, queueName: context.queueName } };
+        }
+        id(owner.accountId);
+        return new SocialSession(this, owner, context);
     }
     async selectGame(owner, gameAccountId) {
         const selected = id(gameAccountId);
@@ -131,7 +137,7 @@ class SocialRuntime {
     async current(route, accountId, transaction) {
         if (route.type === 'connection') {
             const session = await this.sessions.current(route.connectionId, { accountId, address: route.address }, transaction);
-            return session && { ...session, sessionKey: 'c:' + route.connectionId, route };
+            return session && new SocialSession(this, { ...session, sessionKey: 'c:' + route.connectionId, route });
         }
         if (route.type !== 'world') { return null; }
         const expected = route.owner;
@@ -149,7 +155,7 @@ class SocialRuntime {
         // A database outage is not an authentication revocation: retain the subscription for recovery.
         try { await checkIP(this.models, owner.address, Date.now(), { transaction }); }
         catch (error) { if (error === 0xA) { return null; } throw error; }
-        return owner;
+        return new SocialSession(this, owner);
     }
     async blockSession(owner, targetId) {
         id(owner.accountId); id(targetId);

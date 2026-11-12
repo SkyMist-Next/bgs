@@ -198,7 +198,7 @@ test('social graph InnoDB migration, policy, concurrency and transactional recov
             const context = {};
             service.register(kind, {});
             service.worldContext(context, owner, 'queue-one');
-            await service.subscribe(context, await service.owner(context), kind, accountId, '18446744073709551615', {}, { value: 'baseline' });
+            await service.subscribe(context, await service.session(context), kind, accountId, '18446744073709551615', {}, { value: 'baseline' });
             await context.afterReply();
         }
         const next = { ...owner, routeEpoch: '9007199254740994' };
@@ -212,7 +212,7 @@ test('social graph InnoDB migration, policy, concurrency and transactional recov
         }
         const stale = {};
         service.worldContext(stale, owner, 'queue-one');
-        await assert.rejects(service.subscribe(stale, await service.owner(stale), 'friends', accountId, '2'), error => error === 0xA);
+        await assert.rejects(service.subscribe(stale, await service.session(stale), 'friends', accountId, '2'), error => error === 0xA);
         const results = await Promise.allSettled([
             service.refreshWorldRoute({ ...owner, routeEpoch: '18446744073709551615' }, 'queue-max'),
             replica.refreshWorldRoute({ ...owner, routeEpoch: '18446744073709551614' }, 'queue-previous')

@@ -18,12 +18,11 @@ class ReportService extends Service {
     }
 
     async SendReport(context) {
-        const owner = await this.runtime.owner(context);
-        wire.id(owner.accountId);
+        const session = await this.runtime.session(context);
         const report = context.request.report;
         if (!report) { throw 0xBC5; }
-        if (report.reportingAccount && wire.accountId(report.reportingAccount) !== owner.accountId) { throw 0xA; }
-        if (report.reportingGameAccount) { await friends.gameEntity(this.models, report.reportingGameAccount, owner); }
+        if (report.reportingAccount && wire.accountId(report.reportingAccount) !== session.accountId) { throw 0xA; }
+        if (report.reportingGameAccount) { await friends.gameEntity(this.models, report.reportingGameAccount, session); }
         if (Buffer.byteLength(report.reportType || '') > 64 || (report.attribute || []).length > 16) { throw 0xAFC9; }
         // This older method has only generic attributes. Their target field names/encodings must be
         // recovered before use; do not invent a report schema or trust a client-supplied reporter.
@@ -31,9 +30,8 @@ class ReportService extends Service {
     }
 
     async SubmitReport(context) {
-        const owner = await this.runtime.owner(context);
-        wire.id(owner.accountId);
-        if (context.request.agentId) { await friends.gameHandle(this.models, context.request.agentId, owner); }
+        const session = await this.runtime.session(context);
+        if (context.request.agentId) { await friends.gameHandle(this.models, context.request.agentId, session); }
         const report = context.request.reportType;
         if (!report) { throw 0xAFCA; }
         const selected = [...Object.keys(TYPES), 'customReport'].filter(key => Object.hasOwn(report, key));
@@ -56,8 +54,8 @@ class ReportService extends Service {
         }
         const serialized = JSON.stringify(details);
         if (Buffer.byteLength(serialized) > 4096) { throw 0xAFC9; }
-        const result = await this.graph.report({ actorId: owner.accountId, targetId: friends.storedId(target.accountId),
-            operationId: this.runtime.operationId(context), reason: TYPES[key], details: serialized });
+        const result = await this.graph.report({ actorId: session.accountId, targetId: friends.storedId(target.accountId),
+            operationId: session.operationId(), reason: TYPES[key], details: serialized });
         friends.reconcile(this.runtime, result, context);
         return 0;
     }

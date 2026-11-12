@@ -80,14 +80,14 @@ class LegacyChat {
     }
     async _actor(context, subscribed = true) {
         if (context.request.version !== 1) { fail('LEGACY_INVALID_VERSION'); }
-        const owner = await this.runtime.owner(context);
+        const owner = await this.runtime.session(context);
         if (owner.applicationVersion !== 15595 || owner.route?.type !== 'connection') { fail('LEGACY_UNSUPPORTED_CLIENT'); }
-        id(owner.accountId);
         const gameId = id(context.request.gameAccountId?.low);
         if (owner.gameAccountId && owner.gameAccountId !== gameId) { fail('LEGACY_NOT_OWNER'); }
         const game = await this._game(gameId);
         if (stored(game.accountId) !== owner.accountId || !sameEntity(context.request.gameAccountId, entity(game))) { fail('LEGACY_NOT_OWNER'); }
-        return { owner: { ...owner, gameAccountId: gameId }, gameId, game,
+        // owner is the caller's social session; Subscribe binds gameId to it.
+        return { owner, gameId, game,
             generation: subscribed ? uint64(context.request.generation) : null };
     }
     async _members(groups, transaction) {
@@ -180,7 +180,7 @@ class LegacyChat {
         }
     }
     async _receipt(actor, context, action, input, transaction, work) {
-        const operationId = this.runtime.operationId(context);
+        const operationId = actor.owner.operationId();
         if (!/^[0-9a-f]{64}$/.test(operationId)) { throw new Error('Invalid runtime operation ID'); }
         const where = { accountId: actor.owner.accountId, operationId };
         const requestHash = digest({ action, gameId: actor.gameId, sessionKey: actor.owner.sessionKey, generation: actor.generation, input });
@@ -218,7 +218,7 @@ class LegacyChat {
 
     async subscribe(context) {
         const actor = await this._actor(context, false);
-        await this.runtime.selectGame(actor.owner, actor.gameId);
+        await actor.owner.selectGame(actor.gameId);
         const objectId = uint64(context.request.objectId);
         const row = await this._locked({ gameIds: [actor.gameId], expand: [actor.gameId] }, async ({ transaction, groups }) => {
             const current = await this._owner(actor.gameId, transaction);
@@ -242,8 +242,8 @@ class LegacyChat {
             return value;
         });
         const snapshot = await this.snapshot(actor.owner, actor.gameId, counter(row.generation));
-        await this.runtime.unsubscribe(actor.owner, 'legacy', actor.gameId);
-        await this.runtime.subscribe(context, actor.owner, 'legacy', actor.gameId, objectId, { generation: counter(row.generation) }, snapshot);
+        await actor.owner.unsubscribe('legacy', actor.gameId);
+        await actor.owner.subscribe('legacy', actor.gameId, objectId, { generation: counter(row.generation) }, snapshot);
         return snapshot;
     }
 
@@ -409,7 +409,7 @@ class LegacyChat {
                 routes.push(delivery[0]);
             }
             await this._sessionBlocks(members);
-            const operationId = this.runtime.operationId(context);
+            const operationId = actor.owner.operationId();
             if (!/^[0-9a-f]{64}$/.test(operationId)) { throw new Error('Invalid runtime operation ID'); }
             const requestHash = digest({ group, gameId: actor.gameId, generation: actor.generation, sessionKey: actor.owner.sessionKey, message });
             const key = '/skymist/v1/social/legacy/send/' + actor.owner.accountId + '/' + operationId;

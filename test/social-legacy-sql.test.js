@@ -152,7 +152,7 @@ test('legacy groups and social runtime/presence migrations against real InnoDB',
     async function subscribe(actor, replica = replicas[0], objectId = OBJECT) {
         const call = context(actor, { objectId });
         const result = await replica.chat.subscribe(call); await call.afterReply?.();
-        actor.generation = result.generation; actor.owner = await replica.runtime.owner(context(actor));
+        actor.generation = result.generation; actor.owner = await replica.runtime.session(context(actor));
         return result;
     }
     async function friends(a, b, kind = 'battle_tag') {

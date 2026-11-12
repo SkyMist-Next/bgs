@@ -133,14 +133,15 @@ async function gameHandle(models, handle, owner) {
     return game;
 }
 
-async function ownerFor(runtime, models, context) {
-    const owner = await runtime.owner(context);
-    wire.id(owner.accountId);
-    wire.actor(context.request || {}, owner);
+// The caller's social session, after the friends-family agent fields (account
+// EntityId agentId/agentIdentity) are proven to name that session's own identity.
+async function sessionFor(runtime, models, context) {
+    const session = await runtime.session(context);
+    wire.actor(context.request || {}, session);
     if (context.request?.agentIdentity?.gameAccountId) {
-        await gameEntity(models, context.request.agentIdentity.gameAccountId, owner);
+        await gameEntity(models, context.request.agentIdentity.gameAccountId, session);
     }
-    return owner;
+    return session;
 }
 
 function reconcile(runtime, result, context) {
@@ -158,4 +159,4 @@ function deferReconcile(runtime, accountIds, context) {
 }
 
 module.exports = { PARAMS, INVITATION, ROLES, role, kind, storedId, friend, received, sent, blocked, subscribe,
-    friendsDiff, blocksDiff, gameEntity, gameHandle, ownerFor, reconcile, deferReconcile };
+    friendsDiff, blocksDiff, gameEntity, gameHandle, sessionFor, reconcile, deferReconcile };
