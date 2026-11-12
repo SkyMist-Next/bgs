@@ -79,7 +79,7 @@ test('social graph InnoDB migration, policy, concurrency and transactional recov
         assert.equal(accepted.revisions[a], '9007199254741001');
         const snapshot = await graph.snapshot(a);
         assert.equal(snapshot.friends[0].accountId, b);
-        assert.equal(snapshot.friends[0].givenName, '');
+        assert.equal(snapshot.friends[0].fullName, '');
         assert.equal(snapshot.revision, '9007199254741001');
         const events = await graph.pendingOutbox();
         assert.ok(events.every(event => typeof event.payload.accountId === 'string' && typeof event.revision === 'string'));
@@ -137,10 +137,10 @@ test('social graph InnoDB migration, policy, concurrency and transactional recov
         const a = await account(); const b = await account();
         const pending = await invite(a, b, 'real_id');
         await graph.accept({ actorId: b, targetId: a, invitationId: pending.invitationId, operationId: 'accept' });
-        assert.equal((await graph.project(a, b)).givenName, 'Private');
+        assert.equal((await graph.project(a, b)).fullName, 'Private Name');
         await Account.update({ realIdEnabled: false }, { where: { id: b } });
-        assert.equal((await graph.project(a, b)).givenName, '');
-        assert.equal((await graph.snapshot(b)).friends[0].surname, '');
+        assert.equal((await graph.project(a, b)).fullName, '');
+        assert.equal((await graph.snapshot(b)).friends[0].fullName, '');
     });
 
     await t.test('real parent locks enforce the 100-target durable/session union across licenses and duplicate rows', async () => {

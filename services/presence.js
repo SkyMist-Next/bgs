@@ -86,8 +86,7 @@ class PresenceService extends Service {
         if (!target.game) {
             const profile = await this.models.Account.findByPk(target.accountId);
             if (blocked(profile)) { return []; }
-            const projection = owner.accountId === target.accountId ? { realIdVisible: profile.realIdEnabled,
-                givenName: profile.givenName, surname: profile.surname } : await this.runtime.graph.project(owner.accountId, target.accountId);
+            const projection = await this.runtime.graph.project(owner.accountId, target.accountId);
             if (!projection) { return []; }
             const games = await this.models.GameAccount.findAll({ where: { accountId: target.accountId }, order: [['id', 'ASC']], limit: 257 });
             if (games.length > 256) { throw 0x25; }
@@ -95,7 +94,7 @@ class PresenceService extends Service {
             for (const game of games) { if ((await this.gameOnline(game)).online) { onlineGames.push(game); } }
             const online = onlineGames.length > 0 || (await this.runtime.recipients(target.accountId, 'friends')).length > 0;
             const values = await this.state(target, online);
-            const fields = [f(1, { stringValue: projection.realIdVisible ? [projection.givenName, projection.surname].filter(Boolean).join(' ') : '' }),
+            const fields = [f(1, { stringValue: projection.fullName }),
                 f(2, { stringValue: values.broadcast || '' }), f(4, { stringValue: profile.battleTag }),
                 f(5, { intValue: values.broadcastTime || '0' }), f(6, { intValue: values.lastOnline || '0' }),
                 f(7, { boolValue: online && Boolean(values.afk) }), f(11, { boolValue: online && Boolean(values.dnd) })];

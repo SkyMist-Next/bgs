@@ -20,7 +20,7 @@ const OBJECT = '18446744073709551615';
 const Header = wire.type('rpc_types', 'bgs.protocol.Header');
 const empty = accountId => ({ accountId, revision: '0', friends: [], receivedInvitations: [], sentInvitations: [], blocks: [] });
 const profile = (accountId = B, kind = 'battle_tag') => ({ accountId, battleTag: 'Friend#1234', kind,
-    givenName: 'Private', surname: 'Name', realIdVisible: kind === 'real_id', note: 'owner-only note' });
+    fullName: kind === 'real_id' ? 'Private Name' : '', realIdVisible: kind === 'real_id', note: 'owner-only note' });
 const invitation = (senderId = B, recipientId = A, kind = 'real_id') => ({ invitationId: INVITE, senderId, recipientId, kind,
     message: 'hello', createdAt: new Date(), peer: profile(senderId === A ? recipientId : senderId, kind) });
 
@@ -346,7 +346,7 @@ test('encoded adapters integrate with graph receipts, Real ID consent, notes and
     // Same request after the invitation row was deleted reaches the graph's original successful receipt.
     assert.equal((await call('AcceptInvitation', accept, B, 'accept')).status, 0);
     assert.equal((await f.graph.snapshot(B)).revision, revision);
-    assert.equal((await f.graph.project(A, B)).givenName, '');
+    assert.equal((await f.graph.project(A, B)).fullName, '');
     const beforeNote = await registry.get('friends').snapshot({ accountId: A });
     assert.equal((await call('UpdateFriendState', { targetId: wire.account(B),
         attribute: [wire.textAttribute('friend_note', 'my private note')] }, A, 'note')).status, 0);
@@ -356,9 +356,9 @@ test('encoded adapters integrate with graph receipts, Real ID consent, notes and
     assert.equal((await call('SendInvitation', invite(2), A, 'upgrade-rid')).status, 0);
     const upgrade = (await f.graph.snapshot(B)).receivedInvitations[0].invitationId;
     assert.equal((await call('AcceptInvitation', { invitationId: upgrade, options: { role: 2 } }, B, 'accept-rid')).status, 0);
-    assert.equal((await f.graph.project(A, B)).givenName, 'Private');
+    assert.equal((await f.graph.project(A, B)).fullName, 'Private Person');
     await f.Account.update({ realIdEnabled: false }, { where: { id: B } });
-    assert.equal((await f.graph.project(A, B)).givenName, '');
+    assert.equal((await f.graph.project(A, B)).fullName, '');
     assert.equal((await call('BlockPlayer', { targetId: wire.account(A) }, B, 'block', blocks)).status, 0);
     assert.equal((await f.graph.snapshot(A)).friends.length, 0);
     assert.equal((await f.graph.access(A, B)).canWhisper, false);

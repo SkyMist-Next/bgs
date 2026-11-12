@@ -43,11 +43,12 @@ function friendshipKind(value) {
 }
 function optedIn(profile) { return profile.realIdEnabled === true || profile.realIdEnabled === 1; }
 function realNames(viewer, subject, kind) { return kind === 'real_id' && optedIn(viewer) && optedIn(subject); }
-function profile(viewer, subject, kind = null) {
-    const visible = realNames(viewer, subject, kind);
+// The only place a real name leaves the graph (ADR-0001): fullName is empty
+// unless both sides of a Real ID friendship, or an opted-in self-view, allow it.
+function profile(viewer, subject, kind = null, visible = realNames(viewer, subject, kind)) {
     return {
         accountId: stored(subject.id), battleTag: subject.battleTag, kind,
-        givenName: visible ? subject.givenName || '' : '', surname: visible ? subject.surname || '' : '',
+        fullName: visible ? [subject.givenName, subject.surname].filter(Boolean).join(' ') : '',
         realIdVisible: visible
     };
 }
@@ -355,7 +356,14 @@ class SocialGraph {
         return access;
     }
 
+    // The actor's view of one account: its own profile, or a friend's. Null when not visible.
     async project(actorId, targetId) {
+        if (actorId === targetId) {
+            return this._read(actorId, undefined, async (transaction, accounts) => {
+                const self = accounts.get(actorId);
+                return { ...profile(self, self, null, optedIn(self)), note: '' };
+            });
+        }
         return this._read(actorId, targetId, async (transaction, accounts) => {
             if (await this._blocked(actorId, targetId, transaction)) { return null; }
             const friend = await this._friend(actorId, targetId, transaction);

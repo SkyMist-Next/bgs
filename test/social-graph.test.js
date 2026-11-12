@@ -55,12 +55,11 @@ test('BattleTag friendship and pending Real ID requests never disclose names, de
     const snapshot = await graph.snapshot(A);
     assert.equal(snapshot.revision, '2');
     assert.deepEqual(snapshot.friends[0], { accountId: B, battleTag: `Player#${B}`, kind: 'battle_tag',
-        givenName: '', surname: '', realIdVisible: false, note: '' });
+        fullName: '', realIdVisible: false, note: '' });
     const upgrade = await graph.invite({ actorId: A, targetId: B, kind: 'real_id', operationId: 'upgrade' });
     const pending = (await graph.snapshot(B)).receivedInvitations[0];
     assert.equal(pending.invitationId, upgrade.invitationId);
-    assert.equal(pending.peer.givenName, '');
-    assert.equal(pending.peer.surname, '');
+    assert.equal(pending.peer.fullName, '');
     assert.equal(pending.peer.kind, null);
     assert.equal((await graph.project(A, B)).realIdVisible, false);
     const events = JSON.stringify(await graph.pendingOutbox());
@@ -79,14 +78,14 @@ test('Real ID requires both opt-ins at invitation and acceptance, and privacy is
     await assert.rejects(graph.accept({ actorId: B, targetId: A, invitationId, operationId: 'accept-rid' }), error('REAL_ID_DISABLED'));
     await Account.update({ realIdEnabled: true }, { where: { id: B } });
     await graph.accept({ actorId: B, targetId: A, invitationId, operationId: 'accept-rid' });
-    assert.equal((await graph.project(A, B)).givenName, 'Private');
+    assert.equal((await graph.project(A, B)).fullName, 'Private Person');
     assert.equal((await graph.access(A, B)).canSeeRealName, true);
     await Account.update({ realIdEnabled: false }, { where: { id: A } });
     for (const [viewer, target] of [[A, B], [B, A]]) {
         const projected = await graph.project(viewer, target);
-        assert.equal(projected.givenName, ''); assert.equal(projected.surname, '');
+        assert.equal(projected.fullName, '');
         assert.equal(projected.realIdVisible, false);
-        assert.equal((await graph.snapshot(viewer)).friends[0].givenName, '');
+        assert.equal((await graph.snapshot(viewer)).friends[0].fullName, '');
     }
 });
 
@@ -332,4 +331,15 @@ test('migration is additive, executes all DDL and refuses destructive rollback',
     assert.equal(queries.length, 8);
     assert.ok(queries.every(statement => statement.startsWith('CREATE TABLE IF NOT EXISTS social_')));
     await assert.rejects(migration.down(), /additive/);
+});
+
+test('self projection discloses the own real name only while opted in, and never a note', async t => {
+    const { graph, Account } = await setup(t);
+    assert.deepEqual(await graph.project(A, A), { accountId: A, battleTag: `Player#${A}`, kind: null,
+        fullName: '', realIdVisible: false, note: '' });
+    await Account.update({ realIdEnabled: true }, { where: { id: A } });
+    const self = await graph.project(A, A);
+    assert.equal(self.fullName, 'Private Person');
+    assert.equal(self.realIdVisible, true);
+    await assert.rejects(graph.project('9007199254741999', '9007199254741999'), error('ACCOUNT_NOT_FOUND'));
 });

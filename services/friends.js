@@ -158,7 +158,7 @@ class FriendsService extends Service {
         if (target === owner.accountId) {
             context.response.friends = (await this.graph.snapshot(owner.accountId)).friends.map(value => ({
                 accountId: wire.account(value.accountId), role: [friends.role(value.kind)], battleTag: value.battleTag,
-                ...(value.realIdVisible ? { fullName: [value.givenName, value.surname].filter(Boolean).join(' ') } : {})
+                ...(value.realIdVisible ? { fullName: value.fullName } : {})
             }));
         }
         else {
