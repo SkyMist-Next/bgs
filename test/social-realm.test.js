@@ -25,9 +25,13 @@ function setup() {
         }
     }]]);
     const runtime = { refreshWorldRoute: async (lease, queue) => events.push(['route', lease, queue]), worldContext: (context, lease, queue) => events.push(['context', context, lease, queue]) };
-    const store = { run: action => action({ get: async () => state.raw }) };
-    const service = new SocialRealm({ store }, runtime, services, { publish: async (...args) => { events.push(['publish', ...args]); return { sequence: '18' }; } });
-    service.authority.authorize = async () => events.push(['authorized']);
+    const service = new SocialRealm({}, runtime, services, { publish: async (...args) => { events.push(['publish', ...args]); return { sequence: '18' }; } });
+    // The realm authority owns lease fencing (test/realm-authority.test.js); here it yields the authorized lease or rejects.
+    service.authority.authorizeSession = async () => {
+        events.push(['authorized']);
+        if (state.rejection) { throw new Failure(state.rejection); }
+        return { policy: {}, lease: JSON.parse(state.raw) };
+    };
     return { service, owner, state, request, events, services };
 }
 test('world bridge preserves object/payload/status, translates hashes and defers subscribe activation until reply', async () => {
@@ -44,8 +48,8 @@ test('social calls fail closed on expiry, replaced leases, wrong build and custo
     for (const [change, code] of [
         [f => { f.request.deadline = new Date(0).toISOString(); }, 'DEADLINE_EXPIRED'],
         [f => { f.request.generation = '0'; }, 'SESSION_NOT_OPEN'],
-        [f => { f.state.raw = null; }, 'SESSION_OWNERSHIP_LOST'],
-        [f => { f.state.raw = JSON.stringify({ ...f.owner, generation: '18' }); }, 'STALE_SESSION'],
+        [f => { f.state.rejection = 'SESSION_OWNERSHIP_LOST'; }, 'SESSION_OWNERSHIP_LOST'],
+        [f => { f.state.rejection = 'STALE_SESSION'; }, 'STALE_SESSION'],
         [f => { f.state.raw = JSON.stringify({ ...f.owner, build: 15595 }); }, 'UNSUPPORTED_BUILD'],
         [f => { f.services.get(0x53C8C253).legacyOnly = true; }, 'UNSUPPORTED_SOCIAL_SERVICE'],
         [f => { f.request.arguments.service_hash = 123; }, 'UNSUPPORTED_SOCIAL_SERVICE']
@@ -59,7 +63,7 @@ test('character publication uses the authorized lease and a dependency outage st
     const f = setup(); f.request.operation = 'social.presence'; f.request.arguments = { sequence: '18', active: false, character: null };
     assert.equal((await f.service.execute(f.request, { replyTo: 'world', headers: { social_route_epoch: '1' } })).result.sequence, '18');
     const published = f.events.find(event => event[0] === 'publish'); assert.deepEqual(published[1], { ...f.owner, routeEpoch: '1' });
-    f.service.authority.authorize = async () => { throw new Error('database unavailable'); };
+    f.service.authority.authorizeSession = async () => { throw new Error('database unavailable'); };
     await assert.rejects(f.service.execute(f.request, { replyTo: 'world', headers: { social_route_epoch: '1' } }), error => error instanceof Failure && error.code === 'SOCIAL_UNAVAILABLE' && error.retryable);
 });
 

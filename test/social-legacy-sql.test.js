@@ -413,8 +413,9 @@ test('legacy groups and social runtime/presence migrations against real InnoDB',
     await t.test('co-members receive public BattleTag and fenced active character without Real ID or friendship', async () => {
         const [a, b, c] = await trio(); await friends(a, c, 'real_id');
         const group = (await replicas[0].chat.create(createContext(a, b, c))).affectedGroupId;
-        const owner = { account_id: c.accountId, game_account_id: c.gameId, session_id: randomUUID(), generation: '9007199254741009',
-            realm_uid: randomUUID(), namespace: 'test', instance_id: randomUUID(), pod_uid: randomUUID() };
+        const owner = { version: 1, account_id: c.accountId, game_account_id: c.gameId, session_id: randomUUID(), generation: '9007199254741009',
+            realm_uid: randomUUID(), namespace: 'test', instance_id: randomUUID(), pod_uid: randomUUID(),
+            build: 15595, expansion: 3, address: '127.0.0.1' };
         await M.RealmProcessOwner.create({ realm_uid: owner.realm_uid, instance_id: owner.instance_id });
         await store.run(client => client.set('/skymist/v1/sessions/' + c.gameId, JSON.stringify(owner), { EX: 300 }));
         const character = { guid: '340282366920938463463374607431768211455', name: 'Current', realm_address: 50397185,

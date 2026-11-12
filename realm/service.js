@@ -2,7 +2,7 @@
 const { Op, fn, col } = require('sequelize');
 const { Failure, fingerprint, canonical, MAX_RESERVATION_BYTES } = require('./contract');
 const { blocked, privilege, checkIP } = require('../utils/admin-state');
-const { owner: sessionOwner } = require('./sessions');
+const { readLease } = require('./sessions');
 const { requireProof, wireProof, metadata } = require('../utils/authenticator');
 const { licenseIndex } = require('../utils/wow-license');
 const json = value => typeof value === 'string' ? JSON.parse(value) : value;
@@ -17,10 +17,12 @@ class RealmService {
         return realm;
     }
     async authorize(request, transaction) {
+        return (await this.authorizeSession(request, transaction)).policy;
+    }
+    async authorizeSession(request, transaction) {
         const r = request.realm;
-        const rawLease = await this.store.run(client => client.get('/skymist/v1/sessions/' + request.game_account_id));
-        if (!rawLease) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
-        const lease = sessionOwner(JSON.parse(rawLease));
+        const lease = await this.store.run(client => readLease(client, request.game_account_id));
+        if (!lease) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
         if (lease.version !== 1 || lease.session_id !== request.session_id || lease.game_account_id !== request.game_account_id ||
             !Object.keys(r).every(k => lease[k] === r[k])) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
         if (request.operation !== 'session.open' && lease.generation !== request.generation) { throw new Failure('STALE_SESSION'); }
@@ -78,7 +80,7 @@ class RealmService {
             policy.mute_until = String(options.mute_until ?? 0);
             policy.premium = options.premium ?? {};
         }
-        return policy;
+        return { policy, lease };
     }
     async checkRevision(account, change, transaction) {
         const row = await this.models.GameAccountState.findOne({

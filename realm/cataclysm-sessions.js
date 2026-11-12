@@ -2,10 +2,9 @@
 const crypto = require('node:crypto');
 const { wireProof, sameProof } = require('../utils/authenticator');
 const { id, Failure } = require('./contract');
-const { realmPrefix, ticketKey, leaseKey, owner } = require('./sessions');
+const { realmPrefix, ticketKey, leaseKey, owner, sameClaimant } = require('./sessions');
 const { realmAccountName, parseRealmAccountName } = require('../utils/wow-license');
 const { canonicalIP } = require('../utils/admin-state');
-const OWNER_FIELDS = ['namespace', 'realm_uid', 'pod_uid', 'instance_id', 'game_account_id', 'account_id', 'session_id', 'build', 'expansion', 'address'];
 
 function pendingKey(uid, name) {
     parseRealmAccountName(name);
@@ -77,7 +76,7 @@ class CataclysmSessions {
             const existing = await client.get(lease);
             if (existing) {
                 const active = owner(JSON.parse(existing));
-                if (!OWNER_FIELDS.every(key => active[key] === proposed[key]) || !sameProof(active, proposed)) { throw new Failure('SESSION_ALREADY_ACTIVE'); }
+                if (!sameClaimant(active, proposed)) { throw new Failure('SESSION_ALREADY_ACTIVE'); }
                 return { commands: [], result: active };
             }
             if (record.expires_at_ms <= this.clock() || record.issued_at_ms > this.clock()) { throw new Failure('TICKET_EXPIRED'); }
