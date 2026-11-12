@@ -29,6 +29,11 @@ function memoryStore() {
     };
     const client = {
         get: async key => get(key),
+        getEx: async (key, options) => {
+            const value = get(key);
+            if (value !== null && options?.EX) { rows.get(key).expiresAt = store.now + options.EX * 1000; }
+            return value;
+        },
         mGet: async keys => keys.map(get),
         pTTL: async key => get(key) === null ? -2 : rows.get(key).expiresAt - store.now,
         set: async (key, value, options = {}) => {
@@ -39,10 +44,6 @@ function memoryStore() {
         }
     };
     store.run = async work => { if (store.unavailable) { throw new Error('Redis temporarily unavailable'); } return work(client); };
-    store.getConnectionIdentity = async connectionId => {
-        const raw = await store.run(c => c.get('/aurora/connections/' + connectionId));
-        return raw ? JSON.parse(raw) : null;
-    };
     store.transaction = async (keys, decide) => {
         assert.ok(keys.length > 0);
         let release; const before = tail;

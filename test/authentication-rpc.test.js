@@ -1,4 +1,5 @@
 'use strict';
+const { sessionClient } = require('./support/memory-redis');
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -24,7 +25,7 @@ function setup({ missingAccount = false, program = 'WoW', fail, banned = false, 
             if (fail === 'read' || fail === 'program') { throw new Error('Redis rejected'); }
             return { accountId: missingAccount ? null : '9007199254740993', program, connectionId: wrongConnection ? 'another-connection' : 'test-connection', address: '127.0.0.1' };
         },
-        setConnectionIdentity: async () => {},
+        run: operation => operation(sessionClient(async () => null)),
         createLoginTicket: async (ticket, program) => {
             if (fail === 'write') { throw new Error('Redis rejected'); }
             writes.push({ ticket, program });

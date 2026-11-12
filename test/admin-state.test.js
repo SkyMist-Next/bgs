@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { blocked, banned, canonicalIP, trustedPeer, checkIP, principal, gameAccount } = require('../utils/admin-state');
+const { blocked, banned, canonicalIP, trustedPeer, checkIP } = require('../utils/admin-state');
 const { parse, SIGNATURE } = require('../utils/proxy-v2');
 
 function header(v6 = false) {
@@ -46,18 +46,6 @@ test('bans expire in UTC while suspension blocks independently and IPs canonical
     assert.equal(canonicalIP('2001:0DB8:0:0:0:0:0:1'), '2001:db8::1');
     assert.throws(() => canonicalIP('192.0.2.0/24'));
     await assert.rejects(checkIP({ ipBansEnabled: true, IPBan: { findOne: async () => { throw new Error('DB failed'); } } }, '192.0.2.1'));
-});
-
-test('connection identity and parent ownership fail closed including stale tickets', async () => {
-    const context = { identity: { connectionId: 'server-generated', address: '192.0.2.1' } };
-    const models = { IPBan: { findOne: async () => null }, Account: { findByPk: async () => ({ id: '1' }) },
-        GameAccount: { findByPk: async () => ({ accountId: '2' }) } };
-    const store = { getConnectionIdentity: async () => ({ accountId: '1', address: '192.0.2.1' }) };
-    const owner = await principal(models, store, context);
-    await assert.rejects(gameAccount(models, owner, '3'), e => e === 0xA);
-    store.getConnectionIdentity = async () => ({ accountId: '1', address: '192.0.2.2' });
-    await assert.rejects(principal(models, store, context), e => e === 0xA);
-    await assert.rejects(principal(models, store, {}), e => e === 0xA);
 });
 
 test('explicit Realm privilege zero wins and removing it restores global privilege', async () => {

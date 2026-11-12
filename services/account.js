@@ -3,9 +3,10 @@
 const loadProto = require('../utils/protobuf');
 
 const Service = require('./service');
-const { principal, banned, blocked } = require('../utils/admin-state');
-const { realmAccountName } = require('../utils/wow-license');
+const { banned, blocked } = require('../utils/admin-state');
 const { requireProof } = require('../utils/authenticator');
+const { ClientSessions } = require('../utils/client-sessions');
+const { realmAccountName } = require('../utils/wow-license');
 const ACCOUNT_ENTITY_HIGH = '72057594037927936'; // Account entity namespace: 1 << 56.
 
 const accountTypes = loadProto('proto/bgs/low/pb/client/account_types.proto');
@@ -24,6 +25,7 @@ class AccountService extends Service{
         super('AccountService', 'proto/bgs/low/pb/client/account_service.proto', { logger });
         this.models = models;
         this.store = store;
+        this.sessions = new ClientSessions(store, models);
 
         this.registerHandler('GetAccountState', this.GetAccountStatus.bind(this));
 
@@ -31,7 +33,7 @@ class AccountService extends Service{
     }
 
     async GetAccountStatus(context) {
-        const owner = await principal(this.models, this.store, context);
+        const owner = await this.sessions.resolve(context);
         if (context.request.entityId?.high?.toString() !== ACCOUNT_ENTITY_HIGH ||
             context.request.entityId?.low?.toString() !== owner.accountId) { throw 0xA; }
         this.logger.debug('Received GetAccountStatus for accountId:' + context.request.entityId.low.toString());
@@ -40,6 +42,7 @@ class AccountService extends Service{
         context.response.tags = AccountTags.create();
 
         if (context.request.options?.fieldPrivacyInfo || context.request.options?.allFields) {
+            // Disclosure uses this read, so it must itself be current.
             const account = await this.models.Account.findByPk(owner.accountId);
             if (blocked(account)) { throw 0xA; }
             try { requireProof(account, owner); } catch { throw 0xA; }
@@ -55,19 +58,18 @@ class AccountService extends Service{
     }
 
     async GetGameAccountStatus(context) {
-        const owner = await principal(this.models, this.store, context);
+        const owner = await this.sessions.resolve(context);
         this.logger.debug('Received GetGameAccountStatus for gameAccountId:' + context.request.gameAccountId.low.toString());
 
         context.response.state = GameAccountState.create();
         context.response.tags = GameAccountTags.create();
 
-        return this.models.GameAccount.findByPk(context.request.gameAccountId.low.toString()).
+        // Game status reports ban state, so a blocked license remains readable by its owner except on 15595.
+        return this.sessions.ownedGame(owner, context.request.gameAccountId.low.toString(), { includeBlocked: true }).
         then((gameAccount) => {
-            if (!gameAccount || String(gameAccount.accountId) !== owner.accountId) { throw 0xA; }
             let name = gameAccount.displayName;
             if (owner.applicationVersion === 15595) {
-                if (blocked(gameAccount) || gameAccount.program !== 'WoW' || gameAccount.expansion !== 3 ||
-                    context.request.gameAccountId.high.toString() !== gameAccount.entityId.high.toString()) { throw 0xA; }
+                if (blocked(gameAccount) || context.request.gameAccountId.high.toString() !== gameAccount.entityId.high.toString()) { throw 0xA; }
                 try { name = realmAccountName(gameAccount.accountId, gameAccount.wowLicenseIndex); }
                 catch { throw 0xA; }
             }

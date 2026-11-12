@@ -2,7 +2,8 @@
 
 const { randomUUID, createHash } = require('node:crypto');
 const { Op, Transaction } = require('sequelize');
-const { principal, blocked, checkIP } = require('../utils/admin-state');
+const { blocked, checkIP } = require('../utils/admin-state');
+const { ClientSessions, eligibleGame } = require('../utils/client-sessions');
 const { requireProof, wireProof } = require('../utils/authenticator');
 const { SocialGraph, LIMITS, assertBlockCapacity } = require('./graph');
 const { uint64, id } = require('./wire');
@@ -31,6 +32,7 @@ class SocialRuntime {
     constructor(dependencies) {
         Object.assign(this, dependencies);
         this.leases = new WorldSessionLeases(this.store, this.models);
+        this.sessions = new ClientSessions(this.store, this.models);
         this.graph = new SocialGraph({ sequelize: this.models.sequelize, Account: this.models.Account, models: this.models });
         this.projectors = new Map(); this.cursor = ''; this.blockCursor = ''; this.routeCursor = ''; this.stopping = false;
     }
@@ -98,34 +100,21 @@ class SocialRuntime {
     }
     async owner(context) {
         if (context[trusted]) { return context[trusted]; }
-        const owner = await principal(this.models, this.store, context);
+        const owner = await this.sessions.resolve(context);
         return { ...owner, sessionKey: 'c:' + owner.connectionId,
             route: { type: 'connection', connectionId: owner.connectionId, address: owner.address, queueName: context.queueName } };
     }
     async selectGame(owner, gameAccountId) {
         const selected = id(gameAccountId);
         if (owner.gameAccountId && owner.gameAccountId !== selected) { throw 0xA; }
-        const game = await this.models.GameAccount.findByPk(selected);
-        const account = await this.models.Account.findByPk(owner.accountId);
-        if (blocked(game) || blocked(account) || String(game.accountId) !== owner.accountId) { throw 0xA; }
         if (owner.route?.type === 'world') {
+            // A world session is already bound to its leased license; it must still be eligible and current.
+            await this.sessions.ownedGame(owner, selected);
             if (owner.gameAccountId !== selected || !(await this.current(owner.route, owner.accountId))) { throw 0xA; }
             return owner;
         }
         if (owner.route?.type !== 'connection' || owner.sessionKey !== 'c:' + owner.route.connectionId) { throw 0xA; }
-        const key = '/aurora/connections/' + owner.route.connectionId;
-        await this.store.transaction([key], async client => {
-            const raw = await client.get(key);
-            if (!raw || await client.pTTL(key) <= 0) { throw 0xA; }
-            const actual = JSON.parse(raw);
-            if (actual.accountId !== owner.accountId || actual.address !== owner.route.address ||
-                (actual.gameAccountId && actual.gameAccountId !== selected)) { throw 0xA; }
-            try { requireProof(account, actual); } catch { throw 0xA; }
-            return { commands: actual.gameAccountId === selected ? [] : [
-                ['SET', key, JSON.stringify({ ...actual, gameAccountId: selected }), 'XX', 'KEEPTTL']
-            ] };
-        });
-        owner.gameAccountId = selected;
+        owner.gameAccountId = (await this.sessions.selectGame(owner, selected)).gameAccountId;
         return owner;
     }
     operationId(context) {
@@ -138,24 +127,20 @@ class SocialRuntime {
         return this.leases.live(route.owner.game_account_id, { expected: route.owner, transaction });
     }
     async current(route, accountId, transaction) {
-        let owner;
         if (route.type === 'connection') {
-            const raw = await this.store.run(client => client.get('/aurora/connections/' + route.connectionId));
-            if (!raw) { return null; }
-            owner = JSON.parse(raw);
-            if (owner.accountId !== accountId || owner.address !== route.address) { return null; }
-            owner = { ...owner, sessionKey: 'c:' + route.connectionId, connectionId: route.connectionId, route };
-        } else if (route.type === 'world') {
-            const expected = route.owner;
-            const actual = await this.worldLease(route, transaction);
-            if (!actual || actual.account_id !== accountId) { return null; }
-            const game = await this.models.GameAccount.findByPk(actual.game_account_id, { transaction });
-            if (blocked(game) || String(game.accountId) !== accountId || game.program !== 'WoW') { return null; }
-            let proof;
-            try { proof = wireProof(actual); } catch { return null; }
-            owner = { ...actual, ...proof, routeEpoch: expected.routeEpoch, accountId, gameAccountId: actual.game_account_id,
-                applicationVersion: actual.build, sessionKey: 'w:' + actual.session_id + ':' + actual.generation, route };
-        } else { return null; }
+            const session = await this.sessions.current(route.connectionId, { accountId, address: route.address }, transaction);
+            return session && { ...session, sessionKey: 'c:' + route.connectionId, route };
+        }
+        if (route.type !== 'world') { return null; }
+        const expected = route.owner;
+        const actual = await this.worldLease(route, transaction);
+        if (!actual || actual.account_id !== accountId) { return null; }
+        const game = await this.models.GameAccount.findByPk(actual.game_account_id, { transaction });
+        if (!eligibleGame(game, actual.build) || String(game.accountId) !== accountId || game.program !== 'WoW') { return null; }
+        let proof;
+        try { proof = wireProof(actual); } catch { return null; }
+        const owner = { ...actual, ...proof, routeEpoch: expected.routeEpoch, accountId, gameAccountId: actual.game_account_id,
+            applicationVersion: actual.build, sessionKey: 'w:' + actual.session_id + ':' + actual.generation, route };
         const account = await this.models.Account.findByPk(accountId, { transaction });
         if (blocked(account)) { return null; }
         try { requireProof(account, owner); } catch { return null; }

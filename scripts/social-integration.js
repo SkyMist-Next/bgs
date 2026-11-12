@@ -236,7 +236,6 @@ async function main() {
         }
         let transactions = 0;
         const store = { healthy: true, run: action => action(redis),
-            getConnectionIdentity: async id => { const raw = await redis.get('/aurora/connections/' + id); return raw ? JSON.parse(raw) : null; },
             setMetadata: (key, value) => set('/social-integration/' + f.run + '/metadata' + key, value),
             transaction: async (keys, decide) => {
                 keys.forEach(key => ownedKeys.add(key)); transactions++;
@@ -376,7 +375,7 @@ async function main() {
         await until('all friends subscriptions ready after broker reply', async () =>
             await models.SocialSubscription.count({ where: { kind: 'friends', ready: true } }) === 3);
         for (const client of [alice, cara]) {
-            assert.equal((await store.getConnectionIdentity(client.connectionId)).gameAccountId, client.gameId,
+            assert.equal(JSON.parse(await redis.get('/aurora/connections/' + client.connectionId)).gameAccountId, client.gameId,
                 'Own-game subscription must bind the selected license using Redis WATCH/EXEC');
         }
         console.log('PASS direct 15595 and authenticated realm 26972 subscriptions');

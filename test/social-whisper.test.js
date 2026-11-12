@@ -70,7 +70,7 @@ function redis() {
 function setup(store = redis()) {
     const owner = { accountId: A, gameAccountId: GAME, applicationVersion: 26972, sessionKey: 'c:sender' };
     const games = new Map([[GAME, A], [OTHER_GAME, A], [FOREIGN_GAME, B]].map(([id, accountId]) =>
-        [id, { id, accountId, entityId: entity(id), program: 'WoW', region: 1 }]));
+        [id, { id, accountId, entityId: entity(id), program: 'WoW', expansion: 6, region: 1 }]));
     const profile = { battleTag: 'Sender#1234', givenName: 'Private', surname: 'Name', realIdEnabled: true };
     const attempts = [], deliveries = [], access = [], blocks = [], errors = [];
     const blocked = new Set(), live = new Map();

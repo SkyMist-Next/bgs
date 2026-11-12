@@ -1,4 +1,5 @@
 'use strict';
+const { sessionClient } = require('./support/memory-redis');
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -20,7 +21,7 @@ function setup(build = 26972) {
         '/aurora/services/WoWService/subRegions/1-1-0/gameServers/server': { endpoints: [{ family: 1, addresses: [] }] }
     };
     const models = { GameAccountCharacters: { findAll: async () => [] }, GameAccountPrivilege: { findOne: async () => null }, IPBan: { findOne: async () => null }, Account: { findByPk: async () => ({ id: '1' }) },
-        GameAccount: { findAll: async () => [{ region: 1 }], findByPk: async id => ({ id, accountId: '1', region: 1, expansion: build === 15595 ? 3 : 6, program: 'WoW', wowLicenseIndex: 2 }) } };
+        GameAccount: { findAll: async () => [{ region: 1, program: 'WoW', expansion: build === 15595 ? 3 : 6 }], findByPk: async id => ({ id, accountId: '1', region: 1, expansion: build === 15595 ? 3 : 6, program: 'WoW', wowLicenseIndex: 2 }) } };
     const store = {
         transaction: async (keys, decide) => {
             const result = await decide({ get: async key => tickets.has(key) ? (typeof tickets.get(key) === 'string' ? tickets.get(key) : JSON.stringify(tickets.get(key))) : null });
@@ -30,11 +31,12 @@ function setup(build = 26972) {
             }
             return result.result;
         },
-        run: async operation => operation({ get: async key => tickets.get(key) ?? null, set: async (key, value, options) => {
-            if (options?.NX && tickets.has(key)) { return null; }
-            tickets.set(key, JSON.parse(value)); ttls.set(key, options?.EX); return 'OK';
-        } }),
-        getConnectionIdentity: async () => ({ accountId: '1', address: identity.address, applicationVersion: build }),
+        run: async operation => operation(sessionClient(async () => ({ accountId: '1', address: identity.address, applicationVersion: build }), {
+            get: async key => key.startsWith('/aurora/connections/') ? JSON.stringify({ accountId: '1', address: identity.address, applicationVersion: build }) : tickets.get(key) ?? null,
+            set: async (key, value, options) => {
+                if (options?.NX && tickets.has(key)) { return null; }
+                tickets.set(key, JSON.parse(value)); ttls.set(key, options?.EX); return 'OK';
+            } })),
         setJSON: async (key, value, seconds) => { tickets.set(key, structuredClone(value)); ttls.set(key, seconds); },
         getJSON: async key => {
             if (!tickets.has(key)) { throw new Error('Missing ticket'); }
@@ -146,6 +148,13 @@ test('realm tickets cannot cross connections or survive a new game-account ban o
         { stringValue: '1-1-0' }, context));
 });
 
+
+test('Legion clients cannot issue realm-list tickets for Cataclysm licenses', async () => {
+    const { service, models, tickets } = setup();
+    models.GameAccount.findByPk = async id => ({ id, accountId: '1', region: 1, expansion: 3, program: 'WoW' });
+    await assert.rejects(ticket(service), error => error === 10);
+    assert.equal(tickets.size, 0);
+});
 
 test('Legion numeric gameAccountID issues a ticket with the normalized internal identity', async () => {
     const { service, tickets } = setup();
