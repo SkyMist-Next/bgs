@@ -23,3 +23,7 @@ Social relationships belong to Battle.net accounts and span the licenses, builds
 **World session lease** — The exclusive, expiring claim a realm process holds on one game account's authenticated world session. Its world identity is the session incarnation (session, generation and realm process). It fences gameplay and social publication; a malformed lease is never live.
 
 **Client session** — The authenticated identity of one BGS client connection: Battle.net account, peer address, authentication proof, client build and at most one selected game account. It expires five minutes after last use. Its build decides which game accounts are eligible: 15595 uses Cataclysm licenses and 26972 uses Legion licenses.
+
+**Realm-list ticket** — A five-minute ticket that binds one client session and game account to a realm-list view and that build's join rules.
+
+**Realm join ticket** — The 60-second ticket that the realm process claims to open a world session lease.
