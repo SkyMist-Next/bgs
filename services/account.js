@@ -5,6 +5,8 @@ const loadProto = require('../utils/protobuf');
 const Service = require('./service');
 const { principal, banned, blocked } = require('../utils/admin-state');
 const { realmAccountName } = require('../utils/wow-license');
+const { requireProof } = require('../utils/authenticator');
+const ACCOUNT_ENTITY_HIGH = '72057594037927936'; // Account entity namespace: 1 << 56.
 
 const accountTypes = loadProto('proto/bgs/low/pb/client/account_types.proto');
 
@@ -30,16 +32,20 @@ class AccountService extends Service{
 
     async GetAccountStatus(context) {
         const owner = await principal(this.models, this.store, context);
-        if (context.request.entityId.low.toString() !== owner.accountId) { throw 0xA; }
+        if (context.request.entityId?.high?.toString() !== ACCOUNT_ENTITY_HIGH ||
+            context.request.entityId?.low?.toString() !== owner.accountId) { throw 0xA; }
         this.logger.debug('Received GetAccountStatus for accountId:' + context.request.entityId.low.toString());
 
         context.response.state = AccountState.create();
         context.response.tags = AccountTags.create();
 
-        if (Object.hasOwn(context.request, 'fieldPrivacyInfo')) {
+        if (context.request.options?.fieldPrivacyInfo || context.request.options?.allFields) {
+            const account = await this.models.Account.findByPk(owner.accountId);
+            if (blocked(account)) { throw 0xA; }
+            try { requireProof(account, owner); } catch { throw 0xA; }
             context.response.state.privacyInfo = PrivacyInfo.create();
-            context.response.state.privacyInfo.isUsingRid = false;
-            context.response.state.privacyInfo.isReadIdVisibleForViewFriends = false;
+            context.response.state.privacyInfo.isUsingRid = account.realIdEnabled === true || account.realIdEnabled === 1;
+            context.response.state.privacyInfo.isVisibleForViewFriends = false;
             context.response.state.privacyInfo.isHiddenFromFriendFinder = true;
 
             context.response.tags.privacyInfoTag = 0xD7CA834D;

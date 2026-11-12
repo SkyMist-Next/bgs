@@ -6,6 +6,7 @@
     "rest": "node rest.js",
     "frontend": "node frontend.js",
     "service": "node server.js",
+    "social": "node social.js",
     "lint": "eslint .",
     "test": "node --test --test-timeout=10000",
     "check:runtime": "node scripts/check-runtime.js",

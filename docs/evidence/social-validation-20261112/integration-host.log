@@ -1,0 +1,9 @@
+{"fixture":"6161858923b6","database":"social_integration_6161858923b6","vhosts":["social-test-6161858923b6-client","social-test-6161858923b6-realm"],"clients":[{"name":"Alice","account":"11427681944255953","game":"11427681944255961","realm":"5b69f7d1-ac5f-47c5-acfc-5d0803b3c19c","connection":"879fd444-f840-4d72-8d03-2679f3412aee"},{"name":"Bob","account":"11427681944255954","game":"11427681944255962","realm":"d9c4b15d-3e36-4666-ae32-2beba88688cd","connection":"d50f4cba-a17d-455c-a459-d62bca37f370"},{"name":"Cara","account":"11427681944255955","game":"11427681944255963","realm":"da2395d5-72f2-497e-bbb5-a1e85493d1e9","connection":"bbcd42a9-a639-4392-a212-8d59e675a7cf"}]}
+Applied social migrations: 20261112000001-social-profile.js, 20261112000002-social-graph.js, 20261112000003-social-runtime.js, 20261112000004-legacy-chat.js, 20261112000005-social-presence.js, 20261112000006-session-social-blocks.js, 20261112000007-social-world-routes.js
+PASS direct 15595 and authenticated realm 26972 subscriptions
+PASS invitations, acceptance and bilateral snapshots across three accounts
+PASS authenticated character publication and friend presence callback/query
+PASS both-way cross-build whispers and real Redis watched transactions
+PASS runtime restart, persisted subscriptions and pending outbox recovery
+PASS stale generation rejected for presence and social RPC; old subscriptions retired
+Social integration passed; owned SQL, Redis and RabbitMQ resources removed. Native clients were not exercised.

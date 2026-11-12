@@ -101,14 +101,17 @@ class ConnectionService extends Service {
         });
     }
 
-    KeepAlive() {
+    async KeepAlive(context) {
         this.logger.debug('Received KeepAlive on connection');
-
-        return Promise.resolve(0);
+        if (context?.connection?.identity?.connectionId) {
+            await this.store.getConnectionIdentity(context.connection.identity.connectionId);
+        }
+        return 0;
     }
 
-    RequestDisconnect(context) {
+    async RequestDisconnect(context) {
         this.logger.debug('Client requested disconnect with code: '+context.request.errorCode);
+        await this.store.run(client => client.del('/aurora/connections/' + context.connection.identity.connectionId));
         context.connection.disconnect();
 
         return Promise.resolve(0);
@@ -144,6 +147,9 @@ class ConnectionService extends Service {
             onMessage: this.onMessage.bind(this), isAccepting: () => !this.stopping && this.isAccepting()
         });
         socket.once('close', () => {
+            // Expiry remains the fallback during an unavailable Redis primary.
+            void Promise.resolve().then(() => this.store.run(client =>
+                client.del('/aurora/connections/' + connection.identity.connectionId))).catch(() => {});
             const closing = connection.disconnect();
             this.closing.add(closing);
             closing.finally(() => this.closing.delete(closing));

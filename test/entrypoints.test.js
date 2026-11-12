@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const { once } = require('node:events');
+const { EventEmitter, once } = require('node:events');
 const { execFileSync } = require('node:child_process');
 const http = require('node:http');
 const https = require('node:https');
@@ -12,15 +12,27 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { performance } = require('node:perf_hooks');
-const { fixture, deferred, tick } = require('./support/server-fixture');
+const { fixture: baseFixture, deferred, tick } = require('./support/server-fixture');
 const NetworkingServer = require('../servers/networking-server');
 const ServiceServer = require('../servers/service-server');
 const rest = require('../rest');
 const frontend = require('../frontend');
 const worker = require('../server');
+const social = require('../social');
+const SocialRuntime = require('../social/runtime');
 const Header = require('../utils/protobuf')('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
 const inputs = [{ input_id: 'account_name', value: 'demo@example.test' }, { input_id: 'password', value: 'password' }];
 const payload = JSON.stringify({ inputs });
+
+function fixture(config = {}) {
+    const state = baseFixture(config);
+    state.deletedConnections = [];
+    state.store.run = async operation => operation({ del: async key => {
+        state.deletedConnections.push(key);
+        return 1;
+    } });
+    return state;
+}
 
 function request(server, route = '/alive', { method = 'GET', agent, body } = {}) {
     const client = server.config.environment === 'development' ? https : http;
@@ -63,7 +75,7 @@ test('entrypoint imports do not read operator configuration, connect, or registe
             assert.ok(!specifier.includes('config/'));
             return next(specifier, context);
         } });
-        for (const file of ['frontend', 'rest', 'server']) { assert.equal(typeof require('./' + file).createServer, 'function'); }
+        for (const file of ['frontend', 'rest', 'server', 'social']) { assert.equal(typeof require('./' + file).createServer, 'function'); }
         assert.deepEqual(['SIGINT', 'SIGTERM', 'unhandledRejection'].map(event => process.listenerCount(event)), before);
         hooks.deregister();
     `], { cwd: path.resolve(__dirname, '..'), timeout: 5000 });
@@ -252,6 +264,7 @@ test('client-owned channel failure and consumer cancellation disconnect only tha
         if (failure === 'error') { state.channel.emit('error', new Error('channel failed')); }
         else { state.channel.deliver(null); }
         await disconnected;
+        assert.ok(state.deletedConnections.includes('/aurora/connections/' + connection.identity.connectionId));
         assert.equal(server.state, 'running');
         assert.equal(await server.isReady(), true);
     }
@@ -263,6 +276,109 @@ class TestService {
     async handleCall() { return Buffer.from('reply'); }
     async sendError() { return Buffer.from('error'); }
 }
+
+function socialFixture(name, registration, entered) {
+    const state = fixture({ amqpUrl: 'amqp://fixture/', realmDatabase: 'skymist_operator', shutdownTimeout: 500 });
+    state.models.sequelize.query = async () => [];
+    state.brokers = [];
+    function broker(kind) {
+        const label = name + '.' + kind;
+        const connection = Object.assign(new EventEmitter(), { channels: [],
+            close: async () => { state.events.push(label + '.close'); },
+            connection: { stream: { destroy() { state.events.push(label + '.destroy'); } } }
+        });
+        connection.createConfirmChannel = async () => {
+            const channelLabel = label + '.channel' + connection.channels.length;
+            const channel = Object.assign(new EventEmitter(), { closed: 0, cancelled: [], bindings: [],
+                assertExchange: async () => {}, prefetch: async () => {},
+                assertQueue: async queue => { channel.queue = queue; return { queue }; },
+                bindQueue: async (...args) => { channel.bindings.push(args); },
+                consume: async queue => {
+                    channel.tag = channelLabel;
+                    if (registration && queue === 'skymist.realm.social.v1.requests') {
+                        entered.resolve();
+                        await registration.promise;
+                    }
+                    return { consumerTag: channel.tag };
+                },
+                cancel: async tag => { channel.cancelled.push(tag); },
+                close: async () => { channel.closed++; state.events.push(channelLabel + '.close'); }
+            });
+            connection.channels.push(channel);
+            return channel;
+        };
+        state.brokers.push(connection);
+        return connection;
+    }
+    state.amqp = broker('client');
+    state.realmAmqp = broker('realm');
+    state.options.factories.amqp = async () => state.amqp;
+    state.options.factories.realmAmqp = async () => state.realmAmqp;
+    return state;
+}
+
+test('social workers isolate both broker connections, readiness and graceful shutdown', async t => {
+    // Exercise real receiver/runtime lifecycles; reconciliation policy has separate tests.
+    t.mock.method(SocialRuntime.prototype, 'schedule', () => {});
+    const registration = deferred();
+    const entered = deferred();
+    const first = socialFixture('first', registration, entered);
+    const second = socialFixture('second');
+    const a = social.createServer(first.options);
+    const b = social.createServer(second.options);
+    t.after(async () => { registration.resolve(); await a.stop(); await b.stop(); });
+    const starting = a.start();
+    await Promise.race([entered.promise, starting.then(() => assert.fail('Realm consumer must finish before startup'))]);
+    assert.equal(await a.isReady(), false);
+    await b.start();
+    assert.equal(await b.isReady(), true);
+    registration.resolve();
+    await starting;
+    assert.equal(await a.isReady(), true);
+    for (const [server, state] of [[a, first], [b, second]]) {
+        assert.equal(server.receivers.length, 7);
+        assert.equal(state.amqp.channels.length, 7); // Six client RPC receivers plus notification publisher.
+        assert.equal(state.realmAmqp.channels.length, 2); // Realm social receiver plus notification publisher.
+        assert.equal(new Set(state.amqp.channels.slice(0, 6).map(channel => channel.queue)).size, 6);
+        assert.deepEqual(state.realmAmqp.channels[0].bindings, [['skymist.realm.social.v1.requests', 'skymist.realm.rpc.v1', 'social']]);
+        assert.equal(server.runtime.channel, state.amqp.channels.at(-1));
+        assert.equal(server.runtime.realmChannel, state.realmAmqp.channels.at(-1));
+    }
+    first.realmAmqp.emit('blocked');
+    assert.equal(await a.isReady(), false);
+    assert.equal(await b.isReady(), true);
+    first.realmAmqp.emit('unblocked');
+    assert.equal(await a.isReady(), true);
+    assert.equal((await a.stop()).forced, false);
+    assert.equal(await b.isReady(), true);
+    assert.ok(second.brokers.every(connection => connection.channels.every(channel => channel.closed === 0)));
+    assert.equal((await b.stop()).forced, false);
+    for (const [name, state] of [['first', first], ['second', second]]) {
+        for (const [index, kind] of ['client', 'realm'].entries()) {
+            const connection = state.brokers[index];
+            for (const [number, channel] of connection.channels.entries()) {
+                assert.equal(channel.closed, 1);
+                if (channel.tag) { assert.deepEqual(channel.cancelled, [channel.tag]); }
+                assert.ok(state.events.indexOf(`${name}.${kind}.channel${number}.close`) < state.events.indexOf(`${name}.${kind}.close`));
+            }
+        }
+    }
+});
+
+test('social notification channel loss exits the isolated worker for automatic restart', async t => {
+    t.mock.method(SocialRuntime.prototype, 'schedule', () => {});
+    for (const side of ['client', 'realm']) {
+        const state = socialFixture('notification-' + side);
+        const server = social.createServer(state.options);
+        await server.start();
+        assert.equal(await server.isReady(), true);
+        const channel = side === 'client' ? server.runtime.channel : server.runtime.realmChannel;
+        channel.emit('error', new Error('notification publisher closed'));
+        assert.equal(await server.isReady(), false);
+        assert.equal((await server.closed).exitCode, 1);
+        assert.ok(state.brokers.every(connection => connection.channels.every(item => item.closed === 1)));
+    }
+});
 
 test('workers become ready after consumer startup, cancel late consumers, and fail on broker/channel/consumer loss', async () => {
     for (const failure of ['broker', 'channel', 'cancel']) {
@@ -377,6 +493,7 @@ test('a client channel acquired after disconnect is closed before shared RabbitM
     const socketClosed = once(connection.socket, 'close');
     socket.destroy();
     await socketClosed;
+    assert.deepEqual(state.deletedConnections, ['/aurora/connections/' + connection.identity.connectionId]);
     const stopping = server.stop();
     opened.resolve(state.channel);
     await tick();

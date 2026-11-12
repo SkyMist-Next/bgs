@@ -47,9 +47,11 @@ function group(id) {
     const queries = [];
     const registrations = [];
     const channels = [];
+    const deletions = [];
     const logger = Object.fromEntries(['info', 'debug', 'error'].map(level => [level, value => logs.push([level, value])]));
     const store = {
         healthy: true,
+        run: async operation => operation({ del: async key => { deletions.push(key); return 1; } }),
         setMetadata: async (...args) => registrations.push(args),
         getMetadata: async () => `https://${id}.test/login/`,
         setConnectionIdentity: async () => {},
@@ -82,7 +84,7 @@ function group(id) {
         channels.push(channel);
         return channel;
     } };
-    return { id, logger, store, models, amqpConnection, logs, tickets, queries, registrations, channels };
+    return { id, logger, store, models, amqpConnection, logs, tickets, queries, registrations, channels, deletions };
 }
 
 test('two authentication workers isolate stores, models, callbacks, logs, and draining', async t => {
@@ -163,10 +165,12 @@ test('TCP callbacks and connection draining stay with the owning service', async
     const groups = [group('101'), group('202')];
     const services = groups.map(state => new ConnectionService(state));
     const sockets = groups.map(() => socket());
+    const identities = [];
     const calls = [[], []];
     services.forEach((service, index) => {
         service.handleCall = async context => { calls[index].push(context); return Buffer.from(groups[index].id); };
         service.onNewConnection(sockets[index]);
+        identities.push(service.connections[0].identity.connectionId);
     });
     const header = Header.encode(Header.fromObject({ serviceId: 0, methodId: 5, token: 1, size: 0 })).finish();
     const frame = Buffer.alloc(2 + header.length);
@@ -183,10 +187,50 @@ test('TCP callbacks and connection draining stay with the owning service', async
     await services[0].drain();
     assert.equal(sockets[0].destroyed, true);
     assert.equal(sockets[1].destroyed, false);
+    assert.deepEqual(groups[0].deletions, ['/aurora/connections/' + identities[0]]);
+    assert.deepEqual(groups[1].deletions, []);
     sockets[1].emit('data', frame);
     await Promise.all([...services[1].pending]);
     assert.equal(calls[1].length, 2);
     await services[1].drain();
+    assert.deepEqual(groups[1].deletions, ['/aurora/connections/' + identities[1]]);
+});
+
+test('identity deletion errors never interrupt socket cleanup or channel draining', async t => {
+    for (const failure of ['run-sync', 'delete-sync', 'delete-async']) {
+        await t.test(failure, async () => {
+            const state = group('101');
+            const service = new ConnectionService(state);
+            const client = socket();
+            service.onNewConnection(client);
+            const connection = service.connections[0];
+            const channel = await state.amqpConnection.createChannel();
+            connection.setAmqpChannel(channel);
+            connection.setAmqpQueueName('101');
+            await connection.setupConsumer();
+            const expected = '/aurora/connections/' + connection.identity.connectionId;
+            let attempts = 0;
+            state.store.run = operation => {
+                attempts++;
+                if (failure === 'run-sync') { throw new Error('Store failed synchronously'); }
+                return operation({ del(key) {
+                    assert.equal(key, expected);
+                    if (failure === 'delete-sync') { throw new Error('Delete failed synchronously'); }
+                    return Promise.reject(new Error('Delete failed asynchronously'));
+                } });
+            };
+            assert.doesNotThrow(() => client.destroy());
+            assert.equal(connection.disconnected, true);
+            assert.deepEqual(service.connections, []);
+            await service.drain();
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(attempts, 1);
+            assert.equal(service.closing.size, 0);
+            assert.equal(channel.closed, 1);
+            assert.equal(connection.amqpChannel, null);
+            assert.equal(connection.channelClosures.size, 0);
+        });
+    }
 });
 
 test('a client channel opened after disconnect is closed with its owning logger', async () => {

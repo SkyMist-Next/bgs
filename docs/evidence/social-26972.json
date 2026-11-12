@@ -1,0 +1,487 @@
+[
+  {
+    "name": "legion-field-D35080",
+    "evidence_id": "ev_c8e3f38f9c5da3021975a3d26f666b053140a757e1f5b70ce02407006f008526",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D35080"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D354A0",
+    "evidence_id": "ev_c9d8012e53d68251b36ecb1452b87b11e30ed053fe6df3b5cfe51699d01b09e2",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D354A0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D35160",
+    "evidence_id": "ev_e037e488dcb7ef1a10c0e0e66b0424584cb0d2ded5e4c3722595d6f8797303b0",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D35160"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D351D0",
+    "evidence_id": "ev_0634455d7eb108ac67c68da0eb08a351a5c2b5a957923c38c1ade391b577f68b",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D351D0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D356A0",
+    "evidence_id": "ev_f0ea49dc08765d76f06925710663e3e70a6ad13e65186488db57b8b0125d2a79",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D356A0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D34F50",
+    "evidence_id": "ev_c93f0093d74ad066d60f58848dd9b8bbfa1e7ddc1d4c94c94b3ee9c12ff6843a",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D34F50"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D35230",
+    "evidence_id": "ev_6609e67489dc3ae9037ec5b31af36509c444c0590fa21d5df8c659dd26677ff0",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D35230"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D34FB0",
+    "evidence_id": "ev_22d34afe49cec413452602ffb007b696ae2b22184b97d6ab7b588e7a3f6a445c",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D34FB0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D350F0",
+    "evidence_id": "ev_17fa4b6cb7cf576282773d181295abc0af2eb4d364775fcfe9353a525ef1bf06",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D350F0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D35000",
+    "evidence_id": "ev_0645d1e12f28cfab4d98b66f365cbbf603b71a7498c5314f18a3b67b7d1161af",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D35000"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D35700",
+    "evidence_id": "ev_fde7cdf412e9b55ee8b0deb7b0e5f418ce8a56e94e069a3ac97fa8d595b800b9",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D35700"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-field-D358E0",
+    "evidence_id": "ev_fe996156ce9728f583ae6fc9518678f6119044a77cc8d39c87629ddd25051cfb",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D358E0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-gameinfo-values",
+    "evidence_id": "ev_d8176304a571643d79e7b3487abd85620dd66dc790d595a97f31c360049a27e7",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140A57CE0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-faction-name",
+    "evidence_id": "ev_d1a8779344af94a44b0a808ac8d766a7a6dad78399e75f3ea399a61948d9ecc1",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x1408958E0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-realm-name-lookup",
+    "evidence_id": "ev_24ce83080e761e9989ebf4ec895c771dbba75630d7bcfaa37ba4dd110be2222f",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x14049AF90"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-notification-register",
+    "evidence_id": "ev_9184202680be85397f92cb73bc35a473ef5aa3955937c97c08f9ff9fde250a6c",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D3B966"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-gameinfo-string",
+    "evidence_id": "ev_2cface4b455bfa98374e51a02fbac8bb2e57c3c42da3ef04ae53cab1fb6d6d4c",
+    "operation": "search_strings",
+    "parameters": {
+      "pattern": "BNGet.*GameAccountInfo",
+      "mode": "regex",
+      "case_sensitive": false
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-session-state-handler",
+    "evidence_id": "ev_52ad350d2a796ae220aa3c3ad02082f240f40be45f5ff990724bb2a7fa9dbf2a",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140d44961"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-session-destroy-reset",
+    "evidence_id": "ev_481f0d6da1bf8fb2a6bc9bd325a5ebbae2733289cf25db0cedd41d4a9b079200",
+    "operation": "analyze_function",
+    "parameters": {
+      "procedure": "0x140D443A0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-session-packet-refs",
+    "evidence_id": "ev_e61b930f8a2e3d934c9affcd790d1d37f78fdba5dd1804e797413fd1b707bf98",
+    "operation": "xrefs",
+    "parameters": {
+      "address": "0x140D442A0"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  },
+  {
+    "name": "legion-dispatch-object-refs",
+    "evidence_id": "ev_679e3f394aec48ecdb3da1126241b1f90a91e96cc5f6f2e93ed910b45242b0fe",
+    "operation": "xrefs",
+    "parameters": {
+      "address": "0x141C7D880"
+    },
+    "subject": {
+      "name": "Wow-64.analysis.exe",
+      "digest": {
+        "sha256": "6aa038904f19965040b75e843a16cf2cb3310caa0b9391aec498e7a985d2c852"
+      },
+      "local_path": "/home/kaloyan/work/re/WoW/artifacts/clients/7.3.5.26972/analysis-x64/Wow-64.analysis.exe",
+      "format": "pe",
+      "architecture": "x86_64"
+    },
+    "provider": {
+      "id": "ida",
+      "name": "IDA MCP adapter",
+      "version": "1"
+    },
+    "confidence": "observed"
+  }
+]

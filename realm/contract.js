@@ -76,6 +76,12 @@ function validate(body, properties, now = Date.now()) {
     if (Date.parse(request.deadline) > now + 300000) { throw new Failure('DEADLINE_TOO_DISTANT'); }
     const args = request.arguments;
     switch (request.operation) {
+    case 'social.presence':
+        require('../social/realm-contract').validatePresence(args);
+        break;
+    case 'social.call':
+        require('../social/realm-contract').validateCall(args);
+        break;
     case 'process.claim': case 'process.check':
         exact(args, request.operation === 'process.claim' ? ['revision', 'build', 'expansion', 'previous_epoch', 'epoch'] : ['revision', 'build', 'expansion', 'epoch']);
         if (request.game_account_id !== '0' || request.generation !== '0' || typeof args.revision !== 'string' || !/^[a-f0-9]{64}$/.test(args.revision) ||

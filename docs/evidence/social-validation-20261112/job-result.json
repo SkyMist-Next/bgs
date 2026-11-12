@@ -1,0 +1,362 @@
+{
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "metadata": {
+        "annotations": {
+            "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"batch/v1\",\"kind\":\"Job\",\"metadata\":{\"annotations\":{},\"labels\":{\"app.kubernetes.io/name\":\"social-integration\"},\"name\":\"social-integration\",\"namespace\":\"bgs-social-validation\"},\"spec\":{\"activeDeadlineSeconds\":600,\"backoffLimit\":0,\"template\":{\"metadata\":{\"labels\":{\"app.kubernetes.io/name\":\"social-integration\"}},\"spec\":{\"automountServiceAccountToken\":false,\"containers\":[{\"command\":[\"node\",\"scripts/social-integration.js\"],\"env\":[{\"name\":\"BGS_SOCIAL_TEST_PORT\",\"value\":\"33317\"},{\"name\":\"BGS_SOCIAL_TEST_REDIS_PORT\",\"value\":\"33318\"},{\"name\":\"BGS_SOCIAL_TEST_AMQP_PORT\",\"value\":\"33319\"},{\"name\":\"BGS_SOCIAL_TEST_MANAGEMENT_PORT\",\"value\":\"33320\"}],\"image\":\"bgs:social-validation-final\",\"imagePullPolicy\":\"Never\",\"name\":\"integration\",\"resources\":{\"limits\":{\"cpu\":\"1\",\"memory\":\"256Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"96Mi\"}},\"securityContext\":{\"allowPrivilegeEscalation\":false,\"capabilities\":{\"drop\":[\"ALL\"]},\"readOnlyRootFilesystem\":true}}],\"initContainers\":[{\"args\":[\"--port=33317\",\"--bind-address=127.0.0.1\",\"--innodb-buffer-pool-size=32M\",\"--max-connections=40\",\"--performance-schema=OFF\"],\"env\":[{\"name\":\"MARIADB_ALLOW_EMPTY_ROOT_PASSWORD\",\"value\":\"1\"}],\"image\":\"mariadb:11.4.10\",\"imagePullPolicy\":\"IfNotPresent\",\"name\":\"sql\",\"resources\":{\"limits\":{\"cpu\":\"1\",\"memory\":\"256Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"96Mi\"}},\"restartPolicy\":\"Always\",\"securityContext\":{\"allowPrivilegeEscalation\":false,\"capabilities\":{\"drop\":[\"ALL\"]}},\"startupProbe\":{\"exec\":{\"command\":[\"mariadb-admin\",\"--host=127.0.0.1\",\"--port=33317\",\"--user=root\",\"ping\"]},\"failureThreshold\":60,\"periodSeconds\":2},\"volumeMounts\":[{\"mountPath\":\"/var/lib/mysql\",\"name\":\"sql\"},{\"mountPath\":\"/run/mysqld\",\"name\":\"sql-run\"}]},{\"args\":[\"redis-server\",\"--bind\",\"127.0.0.1\",\"--port\",\"33318\",\"--save\",\"\",\"--appendonly\",\"no\",\"--maxmemory\",\"32mb\",\"--maxmemory-policy\",\"noeviction\"],\"image\":\"redis:8.2-alpine\",\"imagePullPolicy\":\"IfNotPresent\",\"name\":\"redis\",\"resources\":{\"limits\":{\"cpu\":\"500m\",\"memory\":\"96Mi\"},\"requests\":{\"cpu\":\"50m\",\"memory\":\"32Mi\"}},\"restartPolicy\":\"Always\",\"securityContext\":{\"allowPrivilegeEscalation\":false,\"capabilities\":{\"drop\":[\"ALL\"]}},\"startupProbe\":{\"exec\":{\"command\":[\"redis-cli\",\"-p\",\"33318\",\"ping\"]},\"failureThreshold\":30,\"periodSeconds\":2},\"volumeMounts\":[{\"mountPath\":\"/data\",\"name\":\"redis\"}]},{\"env\":[{\"name\":\"RABBITMQ_DEFAULT_USER\",\"value\":\"fixture\"},{\"name\":\"RABBITMQ_DEFAULT_PASS\",\"value\":\"local-validation-only\"},{\"name\":\"RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS\",\"value\":\"+S 1:1 +A 4\"}],\"image\":\"rabbitmq:4.3.6-management\",\"imagePullPolicy\":\"IfNotPresent\",\"name\":\"rabbit\",\"resources\":{\"limits\":{\"cpu\":\"1\",\"memory\":\"512Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"192Mi\"}},\"restartPolicy\":\"Always\",\"securityContext\":{\"allowPrivilegeEscalation\":false,\"capabilities\":{\"drop\":[\"ALL\"]}},\"startupProbe\":{\"exec\":{\"command\":[\"rabbitmq-diagnostics\",\"-q\",\"check_running\"]},\"failureThreshold\":30,\"periodSeconds\":5,\"timeoutSeconds\":4},\"volumeMounts\":[{\"mountPath\":\"/var/lib/rabbitmq\",\"name\":\"rabbit\"},{\"mountPath\":\"/etc/rabbitmq/rabbitmq.conf\",\"name\":\"rabbit-config\",\"readOnly\":true,\"subPath\":\"rabbitmq.conf\"}]}],\"restartPolicy\":\"Never\",\"securityContext\":{\"fsGroup\":999,\"runAsGroup\":999,\"runAsNonRoot\":true,\"runAsUser\":999,\"seccompProfile\":{\"type\":\"RuntimeDefault\"}},\"terminationGracePeriodSeconds\":20,\"volumes\":[{\"emptyDir\":{\"sizeLimit\":\"512Mi\"},\"name\":\"sql\"},{\"emptyDir\":{\"sizeLimit\":\"16Mi\"},\"name\":\"sql-run\"},{\"emptyDir\":{\"sizeLimit\":\"16Mi\"},\"name\":\"redis\"},{\"emptyDir\":{\"sizeLimit\":\"256Mi\"},\"name\":\"rabbit\"},{\"configMap\":{\"name\":\"rabbit-config\"},\"name\":\"rabbit-config\"}]}},\"ttlSecondsAfterFinished\":3600}}\n"
+        },
+        "creationTimestamp": "2026-11-12T12:03:16Z",
+        "generation": 1,
+        "labels": {
+            "app.kubernetes.io/name": "social-integration"
+        },
+        "name": "social-integration",
+        "namespace": "bgs-social-validation",
+        "resourceVersion": "9769683",
+        "uid": "ed637bd4-6f6a-4d3c-ac2a-07a9c6580255"
+    },
+    "spec": {
+        "activeDeadlineSeconds": 600,
+        "backoffLimit": 0,
+        "completionMode": "NonIndexed",
+        "completions": 1,
+        "manualSelector": false,
+        "parallelism": 1,
+        "podReplacementPolicy": "TerminatingOrFailed",
+        "selector": {
+            "matchLabels": {
+                "batch.kubernetes.io/controller-uid": "ed637bd4-6f6a-4d3c-ac2a-07a9c6580255"
+            }
+        },
+        "suspend": false,
+        "template": {
+            "metadata": {
+                "labels": {
+                    "app.kubernetes.io/name": "social-integration",
+                    "batch.kubernetes.io/controller-uid": "ed637bd4-6f6a-4d3c-ac2a-07a9c6580255",
+                    "batch.kubernetes.io/job-name": "social-integration",
+                    "controller-uid": "ed637bd4-6f6a-4d3c-ac2a-07a9c6580255",
+                    "job-name": "social-integration"
+                }
+            },
+            "spec": {
+                "automountServiceAccountToken": false,
+                "containers": [
+                    {
+                        "command": [
+                            "node",
+                            "scripts/social-integration.js"
+                        ],
+                        "env": [
+                            {
+                                "name": "BGS_SOCIAL_TEST_PORT",
+                                "value": "33317"
+                            },
+                            {
+                                "name": "BGS_SOCIAL_TEST_REDIS_PORT",
+                                "value": "33318"
+                            },
+                            {
+                                "name": "BGS_SOCIAL_TEST_AMQP_PORT",
+                                "value": "33319"
+                            },
+                            {
+                                "name": "BGS_SOCIAL_TEST_MANAGEMENT_PORT",
+                                "value": "33320"
+                            }
+                        ],
+                        "image": "bgs:social-validation-final",
+                        "imagePullPolicy": "Never",
+                        "name": "integration",
+                        "resources": {
+                            "limits": {
+                                "cpu": "1",
+                                "memory": "256Mi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "96Mi"
+                            }
+                        },
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            },
+                            "readOnlyRootFilesystem": true
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File"
+                    }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "initContainers": [
+                    {
+                        "args": [
+                            "--port=33317",
+                            "--bind-address=127.0.0.1",
+                            "--innodb-buffer-pool-size=32M",
+                            "--max-connections=40",
+                            "--performance-schema=OFF"
+                        ],
+                        "env": [
+                            {
+                                "name": "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD",
+                                "value": "1"
+                            }
+                        ],
+                        "image": "mariadb:11.4.10",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "sql",
+                        "resources": {
+                            "limits": {
+                                "cpu": "1",
+                                "memory": "256Mi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "96Mi"
+                            }
+                        },
+                        "restartPolicy": "Always",
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            }
+                        },
+                        "startupProbe": {
+                            "exec": {
+                                "command": [
+                                    "mariadb-admin",
+                                    "--host=127.0.0.1",
+                                    "--port=33317",
+                                    "--user=root",
+                                    "ping"
+                                ]
+                            },
+                            "failureThreshold": 60,
+                            "periodSeconds": 2,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 1
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/var/lib/mysql",
+                                "name": "sql"
+                            },
+                            {
+                                "mountPath": "/run/mysqld",
+                                "name": "sql-run"
+                            }
+                        ]
+                    },
+                    {
+                        "args": [
+                            "redis-server",
+                            "--bind",
+                            "127.0.0.1",
+                            "--port",
+                            "33318",
+                            "--save",
+                            "",
+                            "--appendonly",
+                            "no",
+                            "--maxmemory",
+                            "32mb",
+                            "--maxmemory-policy",
+                            "noeviction"
+                        ],
+                        "image": "redis:8.2-alpine",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "redis",
+                        "resources": {
+                            "limits": {
+                                "cpu": "500m",
+                                "memory": "96Mi"
+                            },
+                            "requests": {
+                                "cpu": "50m",
+                                "memory": "32Mi"
+                            }
+                        },
+                        "restartPolicy": "Always",
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            }
+                        },
+                        "startupProbe": {
+                            "exec": {
+                                "command": [
+                                    "redis-cli",
+                                    "-p",
+                                    "33318",
+                                    "ping"
+                                ]
+                            },
+                            "failureThreshold": 30,
+                            "periodSeconds": 2,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 1
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/data",
+                                "name": "redis"
+                            }
+                        ]
+                    },
+                    {
+                        "env": [
+                            {
+                                "name": "RABBITMQ_DEFAULT_USER",
+                                "value": "fixture"
+                            },
+                            {
+                                "name": "RABBITMQ_DEFAULT_PASS",
+                                "value": "local-validation-only"
+                            },
+                            {
+                                "name": "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS",
+                                "value": "+S 1:1 +A 4"
+                            }
+                        ],
+                        "image": "rabbitmq:4.3.6-management",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "rabbit",
+                        "resources": {
+                            "limits": {
+                                "cpu": "1",
+                                "memory": "512Mi"
+                            },
+                            "requests": {
+                                "cpu": "100m",
+                                "memory": "192Mi"
+                            }
+                        },
+                        "restartPolicy": "Always",
+                        "securityContext": {
+                            "allowPrivilegeEscalation": false,
+                            "capabilities": {
+                                "drop": [
+                                    "ALL"
+                                ]
+                            }
+                        },
+                        "startupProbe": {
+                            "exec": {
+                                "command": [
+                                    "rabbitmq-diagnostics",
+                                    "-q",
+                                    "check_running"
+                                ]
+                            },
+                            "failureThreshold": 30,
+                            "periodSeconds": 5,
+                            "successThreshold": 1,
+                            "timeoutSeconds": 4
+                        },
+                        "terminationMessagePath": "/dev/termination-log",
+                        "terminationMessagePolicy": "File",
+                        "volumeMounts": [
+                            {
+                                "mountPath": "/var/lib/rabbitmq",
+                                "name": "rabbit"
+                            },
+                            {
+                                "mountPath": "/etc/rabbitmq/rabbitmq.conf",
+                                "name": "rabbit-config",
+                                "readOnly": true,
+                                "subPath": "rabbitmq.conf"
+                            }
+                        ]
+                    }
+                ],
+                "restartPolicy": "Never",
+                "schedulerName": "default-scheduler",
+                "securityContext": {
+                    "fsGroup": 999,
+                    "runAsGroup": 999,
+                    "runAsNonRoot": true,
+                    "runAsUser": 999,
+                    "seccompProfile": {
+                        "type": "RuntimeDefault"
+                    }
+                },
+                "terminationGracePeriodSeconds": 20,
+                "volumes": [
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "512Mi"
+                        },
+                        "name": "sql"
+                    },
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "16Mi"
+                        },
+                        "name": "sql-run"
+                    },
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "16Mi"
+                        },
+                        "name": "redis"
+                    },
+                    {
+                        "emptyDir": {
+                            "sizeLimit": "256Mi"
+                        },
+                        "name": "rabbit"
+                    },
+                    {
+                        "configMap": {
+                            "defaultMode": 420,
+                            "name": "rabbit-config"
+                        },
+                        "name": "rabbit-config"
+                    }
+                ]
+            }
+        },
+        "ttlSecondsAfterFinished": 3600
+    },
+    "status": {
+        "completionTime": "2026-11-12T12:03:59Z",
+        "conditions": [
+            {
+                "lastProbeTime": "2026-11-12T12:03:59Z",
+                "lastTransitionTime": "2026-11-12T12:03:59Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "SuccessCriteriaMet"
+            },
+            {
+                "lastProbeTime": "2026-11-12T12:03:59Z",
+                "lastTransitionTime": "2026-11-12T12:03:59Z",
+                "message": "Reached expected number of succeeded pods",
+                "reason": "CompletionsReached",
+                "status": "True",
+                "type": "Complete"
+            }
+        ],
+        "ready": 0,
+        "startTime": "2026-11-12T12:03:16Z",
+        "succeeded": 1,
+        "terminating": 0,
+        "uncountedTerminatedPods": {}
+    }
+}

@@ -21,7 +21,11 @@ module.exports = function createDatabase(config, logger, environment = process.e
         GameAccount: defineGameAccount(sequelize, Sequelize.DataTypes),
         IPBan: require('../models/ipban')(sequelize, Sequelize.DataTypes),
         GameAccountPrivilege: require('../models/gameaccountprivilege')(sequelize, Sequelize.DataTypes),
-        ...require('../models/realmgameplay')(sequelize, Sequelize.DataTypes)
+        ...require('../models/realmgameplay')(sequelize, Sequelize.DataTypes),
+        ...require('../models/socialgraph')(sequelize, Sequelize.DataTypes),
+        ...require('../models/socialruntime')(sequelize, Sequelize.DataTypes),
+        ...require('../models/sociallegacy')(sequelize, Sequelize.DataTypes),
+        ...require('../models/socialpresence')(sequelize, Sequelize.DataTypes)
     };
     for (const model of Object.values(db)) {
         model.associate?.(db);

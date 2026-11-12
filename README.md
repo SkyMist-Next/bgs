@@ -5,6 +5,33 @@ BGS uses CommonJS on **Node.js 26.13.0**, with the supported engine range
 The Node release and stable npm package resolutions were checked on 2026-11-02.
 See the [Node release index](https://nodejs.org/download/release/index.json).
 
+## Social services
+
+`node social.js` runs Friends, Presence, Notification, UserManager, Report and
+the versioned 15595 legacy conversation extension in an isolated worker.
+Friendships, invitations, notes, blocks and profiles belong to the parent
+Battle.net account across its licenses. Toons represent online game accounts
+and their active characters. Real names require an accepted Real ID friendship
+and both accounts' opt-in; BattleTag friendships never grant real names.
+
+The [26972 wire contract](docs/social-26972-contract.md) records native evidence
+and the 15595 projection. [Integration validation](docs/social-integration.md)
+exercises real SQL, Redis and RabbitMQ independently of native game acceptance.
+Profiles are administered through the private admin API/CLI using `given_name`,
+`surname` and `real_id_enabled` (disabled by default).
+
+Rollout requires the social migrations, the sibling chart's social Deployment,
+the operator's `skymist.realm.social.v1.requests` broker grant and both cores'
+authenticated social bridge. The worker uses the existing client broker vhost
+and a separate connection to `skymist-realms`; it has no public listener.
+Realm admission and gameplay persistence keep their separate queue and health.
+Do not run the new worker against a schema that has not completed migrations.
+
+Limits are 200 friends, 100 pending invitations, 100 distinct effective blocked
+parents and 1020 UTF-8 bytes per whisper. Legacy conversations allow six groups
+per selected 15595 game account and twelve participants per group; they have no
+message history or offline queue. Uncertain sends are not retried automatically.
+
 ## Development
 
 ```sh

@@ -15,8 +15,8 @@ async function main() {
             await require('../migrations/' + file).up(q, Sequelize);
             await q.bulkInsert('SequelizeMeta', [{ name: file }]);
         }
-        await q.bulkInsert('accounts', ['dup@example.test', 'DUP@example.test'].map(email => ({
-            email, hash: 'unused', battle_tag: 'Fixture', banned: 0, suspended: 0, created_at: new Date(), updated_at: new Date()
+        await q.bulkInsert('accounts', ['dup@example.test', 'DUP@example.test'].map((email, index) => ({
+            email, hash: 'unused', battle_tag: `EmailCollision#${1000 + index}`, banned: 0, suspended: 0, created_at: new Date(), updated_at: new Date()
         })));
         await require('node:assert/strict').rejects(migration.up(q, Sequelize), error => error.code === 'BGS_EMAIL_CONFLICT');
         const rows = await q.select(null, 'accounts', { attributes: [[Sequelize.fn('COUNT', Sequelize.col('id')), 'n']] });

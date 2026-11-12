@@ -1,0 +1,114 @@
+// SkyMist custom extension for the 15595 compatibility DLL only.
+// This is not a recovered Blizzard/Legion group conversation protocol.
+syntax = "proto2";
+package skymist.protocol.legacy_chat.v1;
+import "bgs/low/pb/client/entity_types.proto";
+import "bgs/low/pb/client/rpc_types.proto";
+option cc_generic_services = false;
+
+enum LegacyChatStatus {
+  LEGACY_OK = 0;
+  LEGACY_INVALID_VERSION = 1559501;
+  LEGACY_UNSUPPORTED_CLIENT = 1559502;
+  LEGACY_NOT_OWNER = 1559503;
+  LEGACY_STALE_SESSION = 1559504;
+  LEGACY_GROUP_NOT_FOUND = 1559505;
+  LEGACY_NOT_FRIENDS = 1559506;
+  LEGACY_BLOCKED = 1559507;
+  LEGACY_CAPACITY = 1559508;
+  LEGACY_OFFLINE = 1559509;
+  LEGACY_OPERATION_CONFLICT = 1559510;
+  LEGACY_SEND_UNCONFIRMED = 1559511;
+  LEGACY_INVALID_INPUT = 1559512;
+}
+message LegacyMember {
+  required .bgs.protocol.EntityId account_id = 1;
+  required .bgs.protocol.EntityId game_account_id = 2;
+  // Public projection scoped to current co-membership, never a Real ID grant.
+  optional string battle_tag = 3;
+  optional bool online = 4;
+  optional LegacyCharacter active_character = 5;
+}
+message LegacyCharacter {
+  // Validated against the current authenticated RealmBridge publisher owner.
+  // GUID is decimal text to preserve both 64-bit and 128-bit character IDs.
+  required string guid = 1;
+  required string name = 2;
+  required uint32 realm_address = 3;
+  required string realm_name = 4;
+  required uint32 level = 5;
+  required uint32 class_id = 6;
+  required uint32 race_id = 7;
+  required uint32 zone_id = 8;
+  required uint32 faction = 9;
+}
+message LegacyGroup {
+  required string group_id = 1;
+  repeated LegacyMember members = 2;
+}
+message LegacyClosed {
+  required string group_id = 1;
+  // Present only when exactly two participants remained. Close/free the slot
+  // before emitting the native converted-to-whisper event for this peer.
+  optional LegacyMember remaining = 2;
+}
+message LegacySnapshot {
+  required uint32 version = 1;
+  required .bgs.protocol.EntityId game_account_id = 2;
+  required uint64 generation = 3;
+  repeated LegacyGroup groups = 4;
+  repeated LegacyClosed closed = 5;
+  optional string affected_group_id = 6;
+}
+message LegacySubscribeRequest {
+  required uint32 version = 1;
+  required .bgs.protocol.EntityId game_account_id = 2;
+  required uint64 object_id = 3;
+}
+message LegacyCreateRequest {
+  required uint32 version = 1;
+  required .bgs.protocol.EntityId game_account_id = 2;
+  required uint64 generation = 3;
+  required .bgs.protocol.EntityId first = 4;
+  required .bgs.protocol.EntityId second = 5;
+}
+message LegacyInviteRequest {
+  required uint32 version = 1;
+  required .bgs.protocol.EntityId game_account_id = 2;
+  required uint64 generation = 3;
+  required string group_id = 4;
+  required .bgs.protocol.EntityId target = 5;
+}
+message LegacyLeaveRequest {
+  required uint32 version = 1;
+  required .bgs.protocol.EntityId game_account_id = 2;
+  required uint64 generation = 3;
+  required string group_id = 4;
+}
+message LegacySendRequest {
+  required uint32 version = 1;
+  required .bgs.protocol.EntityId game_account_id = 2;
+  required uint64 generation = 3;
+  required string group_id = 4;
+  required string text = 5;
+}
+message LegacyMessage {
+  required string group_id = 1;
+  required LegacyMember sender = 2;
+  required string text = 3;
+  required string message_id = 4;
+}
+service LegacyChatService {
+  option (bgs.protocol.service_options) = { descriptor_name: "skymist.protocol.legacy_chat.v1.LegacyChatService" };
+  rpc Subscribe(LegacySubscribeRequest) returns (LegacySnapshot) { option (bgs.protocol.method_options) = { id: 1 }; }
+  rpc Create(LegacyCreateRequest) returns (LegacySnapshot) { option (bgs.protocol.method_options) = { id: 2 }; }
+  rpc Invite(LegacyInviteRequest) returns (LegacySnapshot) { option (bgs.protocol.method_options) = { id: 3 }; }
+  rpc Leave(LegacyLeaveRequest) returns (LegacySnapshot) { option (bgs.protocol.method_options) = { id: 4 }; }
+  rpc Send(LegacySendRequest) returns (.bgs.protocol.NoData) { option (bgs.protocol.method_options) = { id: 5 }; }
+}
+service LegacyChatListener {
+  option (bgs.protocol.service_options) = { descriptor_name: "skymist.protocol.legacy_chat.v1.LegacyChatListener" };
+  rpc OnSnapshot(LegacySnapshot) returns (.bgs.protocol.NO_RESPONSE) { option (bgs.protocol.method_options) = { id: 1 }; }
+  rpc OnMessage(LegacyMessage) returns (.bgs.protocol.NO_RESPONSE) { option (bgs.protocol.method_options) = { id: 2 }; }
+  rpc OnClosed(LegacyClosed) returns (.bgs.protocol.NO_RESPONSE) { option (bgs.protocol.method_options) = { id: 3 }; }
+}

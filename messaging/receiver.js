@@ -17,7 +17,7 @@ class Receiver {
 
     async openChannel() {
         const service = this.service;
-        const channel = await this.amqpConnection.createChannel();
+        const channel = await (this.service.confirmReplies ? this.amqpConnection.createConfirmChannel() : this.amqpConnection.createChannel());
         this.amqpChannel = channel;
         channel.on('error', () => this.fail('Worker channel failed'));
         channel.on('close', () => this.fail('Worker channel closed'));
@@ -57,9 +57,22 @@ class Receiver {
             const buffer = !this.stopping && this.isAccepting()
                 ? await this.service.handleCall(context, message.content)
                 : await this.service.sendError(context, 1);
-            if (Buffer.isBuffer(buffer) && !channel.sendToQueue(message.properties.replyTo, buffer,
-                { appId: this.service.getServiceName(), type: 'response' })) {
-                await waitForDrain(channel);
+            if (Buffer.isBuffer(buffer)) {
+                if (this.service.confirmReplies) {
+                    let timer;
+                    try {
+                        await new Promise((resolve, reject) => {
+                            timer = setTimeout(() => reject(new Error('Worker reply confirmation timed out')), 2000);
+                            channel.sendToQueue(message.properties.replyTo, buffer,
+                                { appId: this.service.getServiceName(), type: 'response', expiration: '15000' },
+                                error => error ? reject(error) : resolve());
+                        });
+                    } finally { clearTimeout(timer); } // Also clear when sendToQueue throws synchronously.
+                } else if (!channel.sendToQueue(message.properties.replyTo, buffer,
+                    { appId: this.service.getServiceName(), type: 'response' })) {
+                    await waitForDrain(channel);
+                }
+                await context.afterReply?.();
             }
         }
         finally {
