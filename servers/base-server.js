@@ -3,6 +3,17 @@
 const { deadline } = require('../utils/deadline');
 const { dependencyProbe } = require('../utils/dependency-probe');
 
+function failureDetail(error) {
+    const detail = {};
+    if (!(error instanceof Error)) { return detail; }
+    if (typeof error.name === 'string' && /^[A-Za-z][\w.]{0,63}$/.test(error.name)) { detail.errorName = error.name; }
+    const code = error.code;
+    if ((Number.isInteger(code) && code >= 0 && code < 100000) || (typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code))) {
+        detail.code = code;
+    }
+    return detail;
+}
+
 class BaseServer {
     constructor({ config = {}, logger, factories = {}, requiresAmqp = true, process: processObject = process } = {}) {
         this.config = config;
@@ -40,8 +51,11 @@ class BaseServer {
 
     record(error, label) {
         this.errors.push(error instanceof Error ? error : new Error(label));
-        // Dependency errors can contain connection URLs and credentials.
-        this.logger?.error(label);
+        // Dependency errors can contain connection URLs and credentials, so
+        // only the class name and a protocol/system code are logged (e.g. an
+        // AMQP 403 ACCESS_REFUSED or ECONNREFUSED), never the message.
+        const detail = failureDetail(error);
+        if (Object.keys(detail).length) { this.logger?.error(label, detail); } else { this.logger?.error(label); }
     }
 
     async attempt(label, operation) {
