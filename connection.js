@@ -6,6 +6,12 @@ const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const Header = rootNamespace.lookupType('bgs.protocol.Header');
 const MAX_HEADER = 1024;
 const MAX_FRAME = 1024 * 1024;
+// Notification methods never reply, so pending server-to-client requests are capped.
+const MAX_PENDING_REQUESTS = 1024;
+// Bound service ids exclude 0xFE (response) and 0xFF; the connection service owns server id 0.
+const MAX_SERVICE_ID = 0xFD;
+const MAX_BINDINGS = 256;
+const isHash = value => Number.isInteger(value) && value >= 0 && value <= 0xFFFFFFFF;
 
 module.exports = class Connection {
     constructor(socket, { logger, serviceHash, serviceName, onMessage, isAccepting = () => true }){
@@ -22,7 +28,7 @@ module.exports = class Connection {
         this.identity = { connectionId: require('node:crypto').randomUUID(), address: socket.verifiedAddress || socket.remoteAddress };
         this.bindless = false;
         this.requestToken = 0;
-        this.requests = [];
+        this.requests = new Map();
         this.inFlight = 0;
         this.resetInput();
         this.importedServices = {};
@@ -87,10 +93,32 @@ module.exports = class Connection {
         return this.bindless;
     }
 
-    getExportedServiceId(importedServiceHash) {
-        return this.exportedServices.findIndex((serviceHash) => {
-            return serviceHash === importedServiceHash;
-        });
+    // Applies a non-bindless BindRequest. Throws without partial effects on any invalid
+    // binding; returns the server ids assigned to deprecated imported service hashes.
+    bind(request, registered) {
+        const imported = request?.importedService ?? [], deprecatedImported = request?.deprecatedImportedServiceHash ?? [];
+        const exported = [...(request?.exportedService ?? []), ...(request?.deprecatedExportedService ?? [])];
+        if (imported.length + deprecatedImported.length + exported.length > MAX_BINDINGS) { throw new Error('Too many service bindings'); }
+        const exportedServices = [...this.exportedServices], importedServices = { ...this.importedServices }, assigned = [];
+        for (const { hash, id } of imported) {
+            if (!isHash(hash) || !registered.has(hash) || !Number.isInteger(id) || id < 1 || id > MAX_SERVICE_ID ||
+                (exportedServices[id] !== undefined && exportedServices[id] !== hash)) { throw new Error('Invalid imported service binding'); }
+            exportedServices[id] = hash;
+        }
+        for (const hash of deprecatedImported) {
+            if (!isHash(hash) || !registered.has(hash)) { throw new Error('Invalid imported service hash'); }
+            let id = exportedServices.indexOf(hash);
+            if (id < 0) { id = exportedServices.length; exportedServices[id] = hash; }
+            if (id > MAX_SERVICE_ID) { throw new Error('Too many imported services'); }
+            assigned.push(id);
+        }
+        for (const { hash, id } of exported) {
+            if (!isHash(hash) || !Number.isInteger(id) || id < 0 || id > MAX_SERVICE_ID) { throw new Error('Invalid exported service binding'); }
+            importedServices[hash] = id;
+        }
+        this.exportedServices = exportedServices;
+        this.importedServices = importedServices;
+        return assigned;
     }
 
     getRemoteAddress() {
@@ -122,7 +150,14 @@ module.exports = class Connection {
         try {
             if (message.properties.type === 'request') {
                 let requestHeader = Header.fromObject(message.properties.headers);
-                requestHeader.token = this.requestToken++;
+                if (!this.bindless && !Number.isInteger(this.importedServices[requestHeader.serviceHash])) {
+                    this.logger.debug('Dropped request for unbound client service: ' + requestHeader.serviceHash);
+                    return;
+                }
+                requestHeader.token = this.requestToken;
+                this.requestToken = (this.requestToken + 1) >>> 0;
+                if (this.requests.size >= MAX_PENDING_REQUESTS) { this.requests.delete(this.requests.keys().next().value); }
+                this.requests.set(requestHeader.token, { serviceHash: requestHeader.serviceHash, requestId: message.properties.correlationId });
 
                 if (!this.bindless) {
                     requestHeader.serviceId = this.importedServices[requestHeader.serviceHash];
@@ -153,10 +188,6 @@ module.exports = class Connection {
 
     exportedServiceAdd(serviceId) {
         this.exportedServices.push(serviceId);
-    }
-
-    importedServiceAdd(boundService) {
-        this.importedServices[boundService.hash] = boundService.id;
     }
 
     resetInput() {
@@ -202,18 +233,17 @@ module.exports = class Connection {
 
     handleFrame(header, payload) {
         if (header.serviceId === 0xFE) {
-            let responseHash = header.serviceHash;
-
-            if (!this.bindless) {
-                responseHash = this.importedServices[this.requests[header.token]];
-            }
+            const pending = this.requests.get(header.token);
+            this.requests.delete(header.token);
+            const responseHash = this.bindless ? header.serviceHash : pending?.serviceHash;
 
             this.logger.debug('Received response on service: '+responseHash+' with methodId: '+header.methodId);
+            if (!isHash(responseHash)) { return; }
 
             this.publish('battlenet_aurora_bus', responseHash.toString(), payload,
                 {
                     headers: header,
-                    requestId: this.requests[header.token],
+                    requestId: pending?.requestId,
                     type: 'response'
                 });
         }
@@ -227,12 +257,7 @@ module.exports = class Connection {
             }
 
             if (!this.isAccepting() || this.inFlight >= 128) {
-                const response = Header.fromObject({ ...Header.toObject(header), serviceId: 0xFE, status: 1, size: 0 });
-                const encoded = Header.encode(response).finish();
-                const rejected = Buffer.alloc(2 + encoded.length);
-                rejected.writeUInt16BE(encoded.length);
-                encoded.copy(rejected, 2);
-                void this.writeBuffer(rejected);
+                this.reject(header, 1);
                 return;
             }
             if (requestHash === this.serviceHash) {
@@ -242,16 +267,25 @@ module.exports = class Connection {
                 this.inFlight++;
                 this.publish('battlenet_aurora_bus', requestHash.toString(), payload,
                     {
-                        headers: { ...Header.toObject(header), identity: this.identity },
+                        headers: { ...Header.toObject(header), serviceHash: requestHash, identity: this.identity },
                         replyTo: this.queueName,
                         appId: this.serviceName,
                         type: 'request'
                     });
             }
             else {
-                //send error ERROR_RPC_INVALID_SERVICE
+                this.reject(header, 0xBC6); // ERROR_RPC_INVALID_SERVICE
             }
         }
+    }
+
+    reject(header, status) {
+        const response = Header.fromObject({ ...Header.toObject(header), serviceId: 0xFE, status, size: 0 });
+        const encoded = Header.encode(response).finish();
+        const rejected = Buffer.alloc(2 + encoded.length);
+        rejected.writeUInt16BE(encoded.length);
+        encoded.copy(rejected, 2);
+        void this.writeBuffer(rejected);
     }
 
     publish(...args) {
