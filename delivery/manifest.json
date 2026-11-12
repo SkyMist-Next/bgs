@@ -1,6 +1,6 @@
 {
   "service": "bgs",
-  "deploymentContract": 1,
+  "deploymentContract": 2,
   "provides": {
     "account-schema": 1,
     "admin-request-protocol": 1,
