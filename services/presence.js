@@ -1,11 +1,11 @@
 'use strict';
 
+const { jsonColumn: json } = require('../utils/json-column');
 const Service = require('./service');
 const wire = require('../social/wire');
 const presence = require('../social/presence-wire');
 const { ownerFor, gameEntity, storedId, status } = require('../social/friends-wire');
 const { blocked } = require('../utils/admin-state');
-const json = value => typeof value === 'string' ? JSON.parse(value) : value;
 const entity = value => ({ high: value.high.toString(), low: value.low.toString() });
 const microseconds = () => (BigInt(Date.now()) * 1000n).toString();
 

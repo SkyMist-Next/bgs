@@ -1,5 +1,6 @@
 'use strict';
 
+const { jsonColumn: json } = require('../utils/json-column');
 const { randomUUID, createHash } = require('node:crypto');
 const { Op, Transaction } = require('sequelize');
 const { blocked, checkIP } = require('../utils/admin-state');
@@ -9,7 +10,6 @@ const { SocialGraph, LIMITS, assertBlockCapacity } = require('./graph');
 const { uint64, id } = require('./wire');
 const { WorldSessionLeases, sameWorld } = require('../realm/sessions');
 const trusted = Symbol('authenticated world social route');
-const json = value => typeof value === 'string' ? JSON.parse(value) : value;
 // Graph caps include 200 notes/invitations and escaped UTF-8 text; an entire authorized
 // snapshot can exceed the single-frame limit. Individual wire frames remain capped separately.
 const SNAPSHOT_BYTES = 4 * 1024 * 1024;

@@ -1,5 +1,6 @@
 'use strict';
 
+const { jsonColumn: json } = require('../utils/json-column');
 const { randomUUID, createHash } = require('node:crypto');
 const { Op, Transaction } = require('sequelize');
 const Long = require('long');
@@ -20,7 +21,6 @@ const STATUS = Object.freeze(root.lookupEnum(NAMESPACE + 'LegacyChatStatus').val
 // Keep these bounds aligned with compat::social's legacy snapshot contract.
 const LIMITS = Object.freeze({ groups: 6, members: 12, messageBytes: 4096, pendingClosures: 64, dedupSeconds: 300 });
 const CLOSURE_SNAPSHOT_CAPACITY = LIMITS.pendingClosures + LIMITS.groups;
-const json = value => typeof value === 'string' ? JSON.parse(value) : value;
 const stored = value => id(String(value));
 const counter = value => uint64(String(value));
 const sorted = values => [...new Set(values)].sort((a, b) => BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0);
