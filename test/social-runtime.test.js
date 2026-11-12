@@ -12,7 +12,7 @@ const OBJECT = '18446744073709551615';
 const clone = value => structuredClone(value);
 const frame = text => ({ serviceHash: 1, worldHash: 2, methodId: 3, objectId: OBJECT, payload: Buffer.from(text) });
 
-function fixture(t) {
+function fixture(t, extra = {}) {
     const account = { id: A, credentialVersion: '3', authenticatorGeneration: '2', authenticatorState: 2, realIdEnabled: true };
     const verified = Math.floor(Date.now() / 1000) - 60;
     const connection = { accountId: A, address: '127.0.0.1', applicationVersion: 26972,
@@ -182,7 +182,7 @@ function fixture(t) {
         value.close = async () => {};
         return value;
     };
-    const dependencies = { models, store, logger: { warn: value => state.warnings.push(value) } };
+    const dependencies = { models, store, logger: { warn: value => state.warnings.push(value) }, ...extra };
     const runtime = new SocialRuntime(dependencies);
     runtime.channel = channel('connection'); runtime.realmChannel = channel('world');
     runtime.graph = {
@@ -596,10 +596,10 @@ test('world route migration and model keep unsigned epochs and an independent un
 test('notification channel error or close requests one fatal shutdown across both broker connections', async t => {
     for (const side of ['connection', 'world']) {
         for (const event of ['error', 'close']) {
-            const f = fixture(t), channels = { connection: f.runtime.channel, world: f.runtime.realmChannel }, failures = [];
+            const failures = [], f = fixture(t, { onChannelFailure: error => { failures.push(error); } });
+            const channels = { connection: f.runtime.channel, world: f.runtime.realmChannel };
             f.runtime.schedule = () => {};
             f.runtime.amqpConnection = { createConfirmChannel: async () => channels.connection };
-            f.runtime.onChannelFailure = error => { failures.push(error); };
             await f.runtime.start({ createConfirmChannel: async () => channels.world });
             const cause = new Error('Closed publisher');
             channels[side].emit(event, event === 'error' ? cause : undefined);
@@ -615,10 +615,10 @@ test('notification channel error or close requests one fatal shutdown across bot
 });
 
 test('intentional runtime shutdown suppresses channel callbacks and shared broker channels are watched once', async t => {
-    const f = fixture(t), channel = f.runtime.channel, failures = [];
+    const failures = [], f = fixture(t, { onChannelFailure: error => failures.push(error) });
+    const channel = f.runtime.channel;
     f.runtime.schedule = () => {};
     f.runtime.amqpConnection = { createConfirmChannel: async () => channel };
-    f.runtime.onChannelFailure = error => failures.push(error);
     let closed = 0;
     channel.close = async () => { closed++; channel.emit('close'); channel.emit('error', new Error('Closing')); };
     await f.runtime.start();
@@ -693,4 +693,12 @@ test('refresh waits for an in-flight subscription diff and cannot overwrite its 
     assert.equal(f.state.sent.length, 1); assert.equal(f.state.sent[0].queue, 'world-queue');
     await f.runtime.reconcileRow(row.id);
     assert.equal(f.state.sent.length, 1);
+});
+
+test('each reconciliation pulse runs every registered projector cleanup with a bounded batch', async t => {
+    const f = fixture(t), cleaned = [];
+    f.runtime.register('legacy', { snapshot: async () => ({}), diff: () => [], cleanup: async limit => cleaned.push(limit) });
+    f.runtime.register('friends', { snapshot: async () => ({}), diff: () => [] });
+    await f.runtime.pulse();
+    assert.deepEqual(cleaned, [20]);
 });

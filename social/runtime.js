@@ -36,6 +36,8 @@ class SocialRuntime {
         this.graph = new SocialGraph({ sequelize: this.models.sequelize, Account: this.models.Account, models: this.models });
         this.projectors = new Map(); this.cursor = ''; this.blockCursor = ''; this.routeCursor = ''; this.stopping = false;
     }
+    // A projector turns one subscription kind into snapshots and diff frames; its optional
+    // cleanup(limit) runs once per reconciliation pulse.
     register(kind, projector) { this.projectors.set(kind, projector); }
     worldContext(context, owner, queueName) {
         context[trusted] = { ...owner, sessionKey: 'w:' + owner.session_id + ':' + owner.generation,
@@ -334,7 +336,7 @@ class SocialRuntime {
         for (const row of rows) { await this.reconcileRow(row.id); }
     }
     async pulse() {
-        await this.legacyChat?.cleanup(20);
+        for (const projector of this.projectors.values()) { await projector.cleanup?.(20); }
         await this.cleanupWorldRoutes(20);
         await this.cleanupSessionBlocks(20);
         const events = await this.graph.pendingOutbox(20);
