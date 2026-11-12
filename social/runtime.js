@@ -10,6 +10,7 @@ const { SocialGraph, LIMITS, assertBlockCapacity } = require('./graph');
 const { uint64, id } = require('./wire');
 const { WorldSessionLeases, sameWorld } = require('../realm/sessions');
 const { SocialSession } = require('./session');
+const { SocialError } = require('./errors');
 const trusted = Symbol('authenticated world social route');
 // Graph caps include 200 notes/invitations and escaped UTF-8 text; an entire authorized
 // snapshot can exceed the single-frame limit. Individual wire frames remain capped separately.
@@ -304,6 +305,34 @@ class SocialRuntime {
             });
         }
         return true;
+    }
+    // Live-only delivery of one whisper to every live social session of the target that
+    // listens to friends. False when it reached no one: either side's block, missing
+    // friendship policy, no live recipient or no confirmed publication. buildFrame runs
+    // once, only after a recipient is known. Dependency and publisher failures propagate;
+    // nothing is queued, retried or kept as history.
+    async whisper(sender, targetId, buildFrame) {
+        const senderId = id(sender.accountId); id(targetId);
+        if (await this.sessionBlocked(sender.sessionKey, targetId)) { return false; }
+        try { await this.graph.assertAccess(senderId, targetId, 'whisper'); }
+        catch (error) { if (error instanceof SocialError) { return false; } throw error; }
+        const recipients = [], seen = new Set();
+        for (const row of await this.recipients(targetId, 'friends')) {
+            if (String(row.accountId) !== targetId) { continue; }
+            const peer = await this.current(json(row.route), targetId);
+            if (!peer || peer.accountId !== targetId) { continue; }
+            if (!peer.sessionKey) { throw new Error('Whisper recipient has no authenticated session'); }
+            // Friends can have several listener objects on one session; NotificationListener
+            // is global, so fan out only once to that session.
+            if (seen.has(peer.sessionKey)) { continue; }
+            seen.add(peer.sessionKey);
+            if (!await this.sessionBlocked(peer.sessionKey, senderId)) { recipients.push(row); }
+        }
+        if (!recipients.length) { return false; }
+        const frame = await buildFrame();
+        let sent = false;
+        for (const recipient of recipients) { sent = await this.notify(recipient, [frame]) || sent; }
+        return sent;
     }
     async recipients(accountId, kind) {
         const rows = await this.models.SocialSubscription.findAll({ where: { accountId, kind, ready: true }, limit: 65, raw: true });
