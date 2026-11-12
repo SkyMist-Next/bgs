@@ -229,3 +229,26 @@ test('fatal rejection during an existing graceful stop retains the failure exit 
     drain.resolve();
     assert.equal((await stopping).exitCode, 1);
 });
+
+test('server failures log the error class and protocol code but never the message', async () => {
+    const f = fixture();
+    const logs = [];
+    f.options.logger = { info() {}, debug() {}, error: (...args) => logs.push(args) };
+    const server = new BaseServer(f.options);
+    await server.start();
+    const refused = Object.assign(new Error('Channel closed by server: 403 (ACCESS-REFUSED) amqp://user:secret@broker/skymist-realms'), { code: 403 });
+    const result = await server.stop(refused);
+    assert.equal(result.exitCode, 1);
+    assert.deepEqual(logs[0], ['Server failure; shutting down', { errorName: 'Error', code: 403 }]);
+    assert.doesNotMatch(JSON.stringify(logs), /secret|amqp:|ACCESS-REFUSED/);
+});
+
+test('unsafe error codes are omitted from failure logs', async () => {
+    const f = fixture();
+    const logs = [];
+    f.options.logger = { info() {}, debug() {}, error: (...args) => logs.push(args) };
+    const server = new BaseServer(f.options);
+    await server.start();
+    await server.stop(Object.assign(new Error('x'), { code: 'amqp://user:secret@broker' }));
+    assert.deepEqual(logs[0], ['Server failure; shutting down', { errorName: 'Error' }]);
+});

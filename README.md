@@ -21,7 +21,8 @@ Profiles are administered through the private admin API/CLI using `given_name`,
 `surname` and `real_id_enabled` (disabled by default).
 
 Rollout requires the social migrations, the sibling chart's social Deployment,
-the operator's `skymist.realm.social.v1.requests` broker grant and both cores'
+the operator's `skymist.realm.social.v1.requests` broker grant (declared as the
+operator `realm-social-queue` delivery capability) and both cores'
 authenticated social bridge. The worker uses the existing client broker vhost
 and a separate connection to `skymist-realms`; it has no public listener.
 Realm admission and gameplay persistence keep their separate queue and health.

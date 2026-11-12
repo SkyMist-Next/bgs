@@ -9,7 +9,8 @@
   },
   "requires": {
     "operator": {
-      "realm-directory-schema": 4
+      "realm-directory-schema": 4,
+      "realm-social-queue": 1
     }
   },
   "schemaMigrations": [
