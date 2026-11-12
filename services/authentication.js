@@ -6,6 +6,7 @@
 const crypto = require('crypto');
 const { blocked, checkIP } = require('../utils/admin-state');
 const { requireProof } = require('../utils/authenticator');
+const { ClientSessions, eligibleGame } = require('../utils/client-sessions');
 
 const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
@@ -17,6 +18,7 @@ class AuthenticationService extends Service {
         this.models = models;
         this.store = store;
         this.amqpConnection = amqpConnection;
+        this.sessions = new ClientSessions(store, models);
 
         this.registerHandler('Logon', this.Logon.bind(this));
 
@@ -77,8 +79,7 @@ class AuthenticationService extends Service {
                     authenticatorVerifiedAt: Number(ticket.authenticatorVerifiedAt ?? 0) };
                 requireProof(account, proof);
                 const program = ticket.program;
-                gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program && !blocked(gameAccount) &&
-                    (applicationVersion !== 15595 || (gameAccount.program === 'WoW' && gameAccount.expansion === 3)));
+                gameAccounts = account.gameAccounts.filter(gameAccount => gameAccount.program === program && eligibleGame(gameAccount, applicationVersion));
                 if (!gameAccounts.length) {
                     status = 0x0000000C; // ERROR_NO_GAME_ACCOUNT
                 }
@@ -90,7 +91,7 @@ class AuthenticationService extends Service {
         }
         if (status === 0) {
             try {
-                await this.store.setConnectionIdentity(context.identity.connectionId, { accountId: String(account.id), address: context.identity.address, ...proof, ...(applicationVersion ? { applicationVersion } : {}) });
+                await this.sessions.open(context.identity, { accountId: account.id, proof, applicationVersion });
             }
             catch { status = 1; }
         }

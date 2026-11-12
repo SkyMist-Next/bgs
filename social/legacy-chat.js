@@ -6,6 +6,7 @@ const Long = require('long');
 const FourCC = require('../utils/fourcc');
 const loadProto = require('../utils/protobuf');
 const { blocked } = require('../utils/admin-state');
+const { eligibleGame } = require('../utils/client-sessions');
 const WorldPresence = require('./world-presence');
 const { validatePresence } = require('./realm-contract');
 const { id, uint64, account, hash, text } = require('./wire');
@@ -73,7 +74,8 @@ class LegacyChat {
 
     async _game(gameId, transaction, requireAvailable = true) {
         const game = await this.models.GameAccount.findByPk(id(gameId), { transaction, raw: true });
-        if (!game || game.program !== 'WoW' || Number(game.expansion) !== 3 || (requireAvailable && blocked(game))) { fail('LEGACY_NOT_OWNER'); }
+        // Legacy conversations are 15595-only, so members hold Cataclysm licenses.
+        if (!eligibleGame(game, 15595, { includeBlocked: !requireAvailable })) { fail('LEGACY_NOT_OWNER'); }
         return game;
     }
     async _actor(context, subscribed = true) {

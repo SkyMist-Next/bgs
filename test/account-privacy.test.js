@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const AccountService = require('../services/account');
+const { sessionClient } = require('./support/memory-redis');
 const loadProto = require('../utils/protobuf');
 const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
 const ACCOUNT = '9007199254740993';
@@ -21,10 +22,10 @@ function fixture() {
         state.onRead?.(state.queries.length);
         return state.account ? { ...state.account } : null;
     } } };
-    const store = { getConnectionIdentity: async id => {
+    const store = { run: operation => operation(sessionClient(async id => {
         assert.equal(id, 'connection');
         return state.identity;
-    } };
+    })) };
     state.service = new AccountService({ models, store, logger: { debug() {}, error() {} } });
     return state;
 }

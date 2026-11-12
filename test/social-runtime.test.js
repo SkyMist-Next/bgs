@@ -26,7 +26,7 @@ function fixture(t) {
     const state = {
         account, connection, world,
         accounts: new Map([[A, account], [B, { id: B, battleTag: 'Peer#1234' }], [C, { id: C, battleTag: 'Other#1234' }]]),
-        games: new Map([[G, { id: G, accountId: A, program: 'WoW' }], [G2, { id: G2, accountId: A, program: 'WoW' }]]),
+        games: new Map([[G, { id: G, accountId: A, program: 'WoW', expansion: 6 }], [G2, { id: G2, accountId: A, program: 'WoW', expansion: 6 }]]),
         process: { realm_uid: world.realm_uid, instance_id: world.instance_id },
         redis: new Map([['/aurora/connections/first', JSON.stringify(connection)], ['/skymist/v1/sessions/' + G, JSON.stringify(world)]]),
         ttl: new Map([['/aurora/connections/first', 300000]]), commands: [], warnings: [], sent: [], queries: [],
@@ -146,15 +146,15 @@ function fixture(t) {
             return found.length;
         };
     }
-    const client = { get: async key => state.redis.get(key) || null, pTTL: async key => state.ttl.get(key) ?? -2 };
+    const client = { get: async key => state.redis.get(key) || null, pTTL: async key => state.ttl.get(key) ?? -2,
+        getEx: async key => {
+            const raw = state.redis.get(key);
+            if (raw) { state.ttl.set(key, 300000); }
+            return raw || null;
+        } };
     let previousRedis = Promise.resolve();
     const store = {
         run: async work => work(client),
-        getConnectionIdentity: async key => {
-            const raw = state.redis.get('/aurora/connections/' + key);
-            if (raw) { state.ttl.set('/aurora/connections/' + key, 300000); }
-            return raw ? JSON.parse(raw) : null;
-        },
         transaction: async (keys, work) => {
             const previous = previousRedis;
             let release; previousRedis = new Promise(resolve => { release = resolve; });

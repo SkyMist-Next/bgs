@@ -272,13 +272,6 @@ class RedisStore {
         this.transactionPoolTask = undefined;
         await Promise.allSettled(clients.map(client => client.release()));
     }
-    setConnectionIdentity(id, value) {
-        return this.run(client => client.set('/aurora/connections/' + id, JSON.stringify(value), { EX: 300 }));
-    }
-    async getConnectionIdentity(id) {
-        const value = await this.run(client => client.getEx('/aurora/connections/' + id, { EX: 300 }));
-        return value ? JSON.parse(value) : null;
-    }
     async createLoginTicket(ticket, program, identity = {}) {
         const key = LOGIN_PREFIX + ticket;
         await this.transaction([key], async client => {

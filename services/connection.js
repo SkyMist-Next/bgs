@@ -7,6 +7,7 @@ const microtime = require('microtime');
 const loadProto = require('../utils/protobuf');
 const Connection = require('../connection');
 const Service = require('./service');
+const { ClientSessions } = require('../utils/client-sessions');
 
 const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const ProcessId = rootNamespace.lookupType('bgs.protocol.ProcessId');
@@ -18,6 +19,7 @@ class ConnectionService extends Service {
         this.store = store;
         this.amqpConnection = amqpConnection;
         this.isAccepting = isAccepting;
+        this.sessions = new ClientSessions(store);
         this.closing = new Set();
 
         this.connections = [];
@@ -103,14 +105,14 @@ class ConnectionService extends Service {
     async KeepAlive(context) {
         this.logger.debug('Received KeepAlive on connection');
         if (context?.connection?.identity?.connectionId) {
-            await this.store.getConnectionIdentity(context.connection.identity.connectionId);
+            await this.sessions.touch(context.connection.identity.connectionId);
         }
         return 0;
     }
 
     async RequestDisconnect(context) {
         this.logger.debug('Client requested disconnect with code: '+context.request.errorCode);
-        await this.store.run(client => client.del('/aurora/connections/' + context.connection.identity.connectionId));
+        await this.sessions.end(context.connection.identity.connectionId);
         context.connection.disconnect();
 
         return Promise.resolve(0);
@@ -147,8 +149,7 @@ class ConnectionService extends Service {
         });
         socket.once('close', () => {
             // Expiry remains the fallback during an unavailable Redis primary.
-            void Promise.resolve().then(() => this.store.run(client =>
-                client.del('/aurora/connections/' + connection.identity.connectionId))).catch(() => {});
+            void Promise.resolve().then(() => this.sessions.end(connection.identity.connectionId)).catch(() => {});
             const closing = connection.disconnect();
             this.closing.add(closing);
             closing.finally(() => this.closing.delete(closing));

@@ -23,24 +23,6 @@ async function checkIP(models, address, now = Date.now(), options = {}) {
     const row = await models.IPBan.findOne({ ...options, where: { address: canonicalIP(address) } });
     if (row && (!row.expiresAt || new Date(row.expiresAt).getTime() > now)) { throw 0xA; }
 }
-async function principal(models, store, context) {
-    const supplied = context?.identity;
-    if (!supplied?.connectionId || !supplied.address) { throw 0xA; }
-    const value = await store.getConnectionIdentity(supplied.connectionId);
-    if (!value || value.address !== supplied.address) { throw 0xA; }
-    await checkIP(models, value.address);
-    const account = await models.Account.findByPk(value.accountId);
-    if (blocked(account)) { throw 0xA; }
-    try { require('./authenticator').requireProof(account, value); }
-    catch { throw 0xA; }
-    return { ...value, connectionId: supplied.connectionId };
-}
-async function gameAccount(models, owner, id) {
-    if ((typeof id === 'number' && !Number.isSafeInteger(id)) || !/^[1-9][0-9]{0,18}$/.test(String(id)) || BigInt(id) > 9223372036854775807n) { throw 0xA; }
-    const account = await models.GameAccount.findByPk(String(id));
-    if (blocked(account) || String(account.accountId) !== owner.accountId) { throw 0xA; }
-    return account;
-}
 async function privilege(models, id, realmUid, options = {}) {
     // Presence of an override (including zero) wins over the global row.
     if (realmUid) {
@@ -50,4 +32,4 @@ async function privilege(models, id, realmUid, options = {}) {
     const global = await models.GameAccountPrivilege.findOne({ ...options, where: { gameAccountId: id, realmUid: '' } });
     return global?.level ?? 0;
 }
-module.exports = { privilege, canonicalIP, trustedPeer, banned, blocked, checkIP, principal, gameAccount };
+module.exports = { privilege, canonicalIP, trustedPeer, banned, blocked, checkIP };

@@ -5,7 +5,8 @@ const zlib = require('zlib');
 const loadProto = require('../utils/protobuf');
 
 const Service = require('./service.js');
-const { principal, gameAccount, privilege, blocked } = require('../utils/admin-state');
+const { privilege } = require('../utils/admin-state');
+const { ClientSessions, eligibleGame } = require('../utils/client-sessions');
 const { Sessions, JOIN_TICKET_SECONDS } = require('../realm/sessions');
 const { CataclysmSessions } = require('../realm/cataclysm-sessions');
 const { realmAccountName } = require('../utils/wow-license');
@@ -71,6 +72,7 @@ class GameUtilitiesService extends Service {
         this.sessions = new Sessions(store);
         this.cataclysmSessions = new CataclysmSessions(store);
         this.models = models;
+        this.clientSessions = new ClientSessions(store, models);
         this.realms = realmDirectory || new (require('../utils/realm-directory'))(models, models.realmDatabase);
 
         this.commandHandlers = {};
@@ -80,11 +82,11 @@ class GameUtilitiesService extends Service {
         this.registerHandler('GetAllValuesForAttribute', this.GetAllValuesForAttribute.bind(this));
 
         this.registerCommand('RealmListTicketRequest', async (params, commandValue, context) => {
-            const owner = await principal(this.models, this.store, context);
+            const owner = await this.clientSessions.resolve(context);
             let identity = GetJSON(params.Identity, 'JSONRealmListTicketIdentity');
-            const game = await gameAccount(this.models, owner, identity.gameAccountID);
+            const game = await this.clientSessions.ownedGame(owner, identity.gameAccountID);
             identity = { gameAccountId: String(game.id), gameAccountRegion: game.region };
-            if (game.program !== 'WoW' || (owner.applicationVersion === 15595 && game.expansion !== 3)) { throw 0xA; }
+            if (game.program !== 'WoW') { throw 0xA; }
             let clientInfo = GetJSON(params.ClientInfo, 'JSONRealmListTicketClientInformation');
             if (!Number.isInteger(clientInfo.info?.version?.versionBuild) || clientInfo.info.version.versionBuild <= 0 || (owner.applicationVersion && owner.applicationVersion !== clientInfo.info.version.versionBuild)) { throw 0xA; }
             if (!Array.isArray(clientInfo.info.secret) || clientInfo.info.secret.length !== 32 || clientInfo.info.secret.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) { throw 0xA; }
@@ -192,8 +194,7 @@ class GameUtilitiesService extends Service {
                 if (!Number.isInteger(selectedRealm.expansion) || selectedRealm.expansion !== game.expansion || !selectedRealm.available || selectedRealm.region !== game.region || selectedRealm.build !== listTicketInfo.info.version.versionBuild || !(['versionMajor', 'versionMinor', 'versionRevision', 'versionBuild'].every(key => selectedRealm.update.version[key] === listTicketInfo.info.version[key])) ||
                     security < selectedRealm.securityLevel) { throw 0xA; }
                 const build = cataclysm ? 15595 : 26972;
-                if (listTicketInfo.owner.applicationVersion !== build || selectedRealm.build !== build ||
-                    game.expansion !== (cataclysm ? 3 : 6)) { throw 0xA; }
+                if (listTicketInfo.owner.applicationVersion !== build || selectedRealm.build !== build) { throw 0xA; }
                 responseParams.RealmJoinTicket.blobValue = crypto.randomBytes(20);
                 if (cataclysm) {
                     responseParams.RealmAccountName.stringValue = realmAccountName(game.accountId, game.wowLicenseIndex);
@@ -251,16 +252,16 @@ class GameUtilitiesService extends Service {
         try {
             const listTicketInfo = await this.store.getJSON(path);
             await this.validateTicket(listTicketInfo, context);
-            return { listTicketInfo, game: await gameAccount(this.models, listTicketInfo.owner, listTicketInfo.identity.gameAccountId) };
+            return { listTicketInfo, game: await this.clientSessions.ownedGame(listTicketInfo.owner, listTicketInfo.identity.gameAccountId) };
         } catch { throw 0x8000012D; } //ERROR_WOW_SERVICES_INVALID_REALM_LIST_TICKET
     }
 
     async validateTicket(ticket, context) {
-        const owner = await principal(this.models, this.store, context);
+        const owner = await this.clientSessions.resolve(context);
         if (!ticket?.owner || ticket.owner.connectionId !== owner.connectionId || ticket.owner.accountId !== owner.accountId || ticket.owner.address !== owner.address) { throw 0xA; }
         if (String(ticket.owner.credentialVersion ?? 1) !== String(owner.credentialVersion ?? 1) ||
             String(ticket.owner.authenticatorGeneration ?? 0) !== String(owner.authenticatorGeneration ?? 0)) { throw 0xA; }
-        const game = await gameAccount(this.models, owner, ticket.identity.gameAccountId);
+        const game = await this.clientSessions.ownedGame(owner, ticket.identity.gameAccountId);
         if (game.region !== ticket.identity.gameAccountRegion || (owner.applicationVersion && owner.applicationVersion !== ticket.info.version.versionBuild)) { throw 0xA; }
     }
 
@@ -331,7 +332,7 @@ class GameUtilitiesService extends Service {
             try { address = BigInt(params.RealmAddress.uintValue.toString()); } catch { throw 0xA; }
             if (address < 1n || address > 0xFFFFFFFFn || (address & 0xFFFFn) === 0n ||
                 command.value.stringValue !== Number((address >> 24n) & 255n) + '-' + Number((address >> 16n) & 255n) + '-0') { throw 0xA; }
-            const owner = await principal(this.models, this.store, context);
+            const owner = await this.clientSessions.resolve(context);
             if (owner.applicationVersion !== (command.version === 'v0' ? 15595 : 26972)) { throw 0xA; }
         }
         context.response.attribute = await this.handleCommand(command, params, context);
@@ -341,9 +342,9 @@ class GameUtilitiesService extends Service {
     async GetAllValuesForAttribute(context) {
         switch (context.request.attributeKey) {
             case 'Command_RealmListRequest_v1_b9': {
-                const owner = await principal(this.models, this.store, context);
+                const owner = await this.clientSessions.resolve(context);
                 const accounts = await this.models.GameAccount.findAll({ where: { accountId: owner.accountId, program: 'WoW' } });
-                const regions = new Set(accounts.filter(a => !blocked(a) && (owner.applicationVersion !== 15595 || a.expansion === 3)).map(a => a.region));
+                const regions = new Set(accounts.filter(a => eligibleGame(a, owner.applicationVersion)).map(a => a.region));
                 let subRegionPrefix = '/aurora/services/WoWService/subRegions/';
                 return this.realms.listMetadata(subRegionPrefix).then((subRegions) => {
                     Object.keys(subRegions).forEach((subRegionKey) => {

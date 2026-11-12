@@ -1,4 +1,5 @@
 'use strict';
+const { sessionClient } = require('./support/memory-redis');
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -51,11 +52,9 @@ function group(id) {
     const logger = Object.fromEntries(['info', 'debug', 'error'].map(level => [level, value => logs.push([level, value])]));
     const store = {
         healthy: true,
-        run: async operation => operation({ del: async key => { deletions.push(key); return 1; } }),
+        run: async operation => operation(sessionClient(async () => ({ accountId: id, address: '127.0.0.1' }), { del: async key => { deletions.push(key); return 1; } })),
         setMetadata: async (...args) => registrations.push(args),
         getMetadata: async () => `https://${id}.test/login/`,
-        setConnectionIdentity: async () => {},
-        getConnectionIdentity: async () => ({ accountId: id, address: '127.0.0.1' }),
         createLoginTicket: async (...args) => tickets.push(args),
         getLoginTicket: async ticket => { assert.equal(ticket, id); return { accountId: id, program: 'WoW', connectionId: id, address: '127.0.0.1' }; },
         listMetadata: async () => ({})

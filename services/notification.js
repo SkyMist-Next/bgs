@@ -1,7 +1,7 @@
 'use strict';
 
 const Service = require('./service');
-const { gameAccount } = require('../utils/admin-state');
+const { ClientSessions } = require('../utils/client-sessions');
 const { SocialError } = require('../social/errors');
 const { account, accountId, notification, textAttribute, id } = require('../social/wire');
 
@@ -13,6 +13,7 @@ class NotificationService extends Service {
     constructor(dependencies) {
         super('NotificationService', 'proto/bgs/low/pb/client/notification_service.proto', dependencies);
         Object.assign(this, { runtime: dependencies.runtime, models: dependencies.models });
+        this.sessions = new ClientSessions(dependencies.runtime.store, dependencies.models);
         this.confirmReplies = true;
         this.registerHandler('SendNotification', this.send.bind(this));
     }
@@ -47,7 +48,7 @@ class NotificationService extends Service {
         // Subscribe; authenticated world routes already carry their selected license.
         if (!owner.gameAccountId) { throw 0xA; }
         const selectedId = id(owner.gameAccountId);
-        const sender = await gameAccount(this.models, owner, selectedId);
+        const sender = await this.sessions.ownedGame(owner, selectedId);
         if (request.senderId) {
             if (id(request.senderId.low) !== selectedId ||
                 sender.entityId.high.toString() !== request.senderId.high?.toString()) { throw 0xA; }
