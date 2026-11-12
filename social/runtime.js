@@ -6,14 +6,13 @@ const { principal, blocked, checkIP } = require('../utils/admin-state');
 const { requireProof, wireProof } = require('../utils/authenticator');
 const { SocialGraph, LIMITS, assertBlockCapacity } = require('./graph');
 const { uint64, id } = require('./wire');
+const { WorldSessionLeases, sameWorld } = require('../realm/sessions');
 const trusted = Symbol('authenticated world social route');
 const json = value => typeof value === 'string' ? JSON.parse(value) : value;
 // Graph caps include 200 notes/invitations and escaped UTF-8 text; an entire authorized
 // snapshot can exceed the single-frame limit. Individual wire frames remain capped separately.
 const SNAPSHOT_BYTES = 4 * 1024 * 1024;
 const DIFF_FRAMES = 2048;
-const WORLD_IDENTITY = ['account_id', 'game_account_id', 'session_id', 'generation', 'namespace', 'realm_uid', 'pod_uid', 'instance_id'];
-const sameWorld = (left, right) => WORLD_IDENTITY.every(key => left[key] === right[key]);
 function worldRoute(owner, queueName) {
     if (typeof owner.routeEpoch !== 'string' || uint64(owner.routeEpoch) === '0' ||
         typeof owner.generation !== 'string' || uint64(owner.generation) === '0' ||
@@ -31,6 +30,7 @@ function validateSessionKey(value) {
 class SocialRuntime {
     constructor(dependencies) {
         Object.assign(this, dependencies);
+        this.leases = new WorldSessionLeases(this.store, this.models);
         this.graph = new SocialGraph({ sequelize: this.models.sequelize, Account: this.models.Account, models: this.models });
         this.projectors = new Map(); this.cursor = ''; this.blockCursor = ''; this.routeCursor = ''; this.stopping = false;
     }
@@ -134,14 +134,8 @@ class SocialRuntime {
         return createHash('sha256').update(JSON.stringify([session, context.requestId || '',
             context.header.serviceHash, context.header.methodId, context.header.token])).digest('hex');
     }
-    async worldLease(route, transaction) {
-        const expected = route.owner;
-        const raw = await this.store.run(client => client.get('/skymist/v1/sessions/' + id(expected.game_account_id)));
-        if (!raw) { return null; }
-        const actual = JSON.parse(raw);
-        if (!sameWorld(actual, expected)) { return null; }
-        const process = await this.models.RealmProcessOwner.findByPk(actual.realm_uid, { transaction, raw: true });
-        return process && process.instance_id === actual.instance_id ? actual : null;
+    worldLease(route, transaction) {
+        return this.leases.live(route.owner.game_account_id, { expected: route.owner, transaction });
     }
     async current(route, accountId, transaction) {
         let owner;

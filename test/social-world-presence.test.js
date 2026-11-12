@@ -5,8 +5,10 @@ const assert = require('node:assert/strict');
 const WorldPresence = require('../social/world-presence');
 const { validatePresence, validateCall } = require('../social/realm-contract');
 
-const owner = { account_id: '9007199254740993', game_account_id: '9007199254740995', session_id: 'session-a',
-    generation: '7', namespace: 'local', realm_uid: 'realm-a', pod_uid: 'pod-a', instance_id: 'instance-a' };
+const owner = { version: 1, account_id: '9007199254740993', game_account_id: '9007199254740995',
+    session_id: 'aaaaaaaa-0000-4000-8000-000000000001', generation: '7', namespace: 'local',
+    realm_uid: 'aaaaaaaa-0000-4000-8000-000000000002', pod_uid: 'aaaaaaaa-0000-4000-8000-000000000003',
+    instance_id: 'aaaaaaaa-0000-4000-8000-000000000004', build: 26972, expansion: 6, address: '127.0.0.1' };
 const character = { guid: '340282366920938463463374607431768211455', name: 'Aster', realm_address: 50397185,
     realm_name: 'Local', level: 85, class: 8, race: 1, zone: 1519, faction: 0 };
 function fixture() {
@@ -42,7 +44,7 @@ test('withdrawal tombstone rejects late and conflicting character updates', asyn
 test('replacement session fences old publisher and starts its own sequence', async () => {
     const { presence, rows } = fixture();
     await presence.publish(owner, { sequence: '800', active: true, character });
-    const replacement = { ...owner, session_id: 'session-b', generation: '8', instance_id: 'instance-b' };
+    const replacement = { ...owner, session_id: 'bbbbbbbb-0000-4000-8000-000000000001', generation: '8', instance_id: 'bbbbbbbb-0000-4000-8000-000000000004' };
     rows.set('/skymist/v1/sessions/' + owner.game_account_id, JSON.stringify(replacement));
     assert.equal(await presence.get(owner.game_account_id), null);
     await assert.rejects(presence.publish(owner, { sequence: '801', active: true, character }), { code: 'SESSION_OWNERSHIP_LOST' });
@@ -54,6 +56,16 @@ test('expired gameplay lease removes visibility even while cached presence remai
     await presence.publish(owner, { sequence: '1', active: true, character });
     rows.delete('/skymist/v1/sessions/' + owner.game_account_id);
     assert.equal(await presence.get(owner.game_account_id), null);
+});
+test('a malformed gameplay lease fences publication and hides presence', async () => {
+    const { presence, rows } = fixture();
+    await presence.publish(owner, { sequence: '1', active: true, character });
+    for (const raw of ['{', JSON.stringify({ ...owner, realm_uid: 'realm-a' }), JSON.stringify({ ...owner, version: 2 })]) {
+        rows.set('/skymist/v1/sessions/' + owner.game_account_id, raw);
+        await assert.rejects(presence.publish(owner, { sequence: '2', active: true, character }), { code: 'SESSION_OWNERSHIP_LOST' });
+        assert.equal(await presence.get(owner.game_account_id), null);
+        assert.equal(await presence.session(owner.game_account_id), null);
+    }
 });
 test('bridge rejects unknown fields, invalid character identity and malformed RPC envelopes', () => {
     for (const value of [

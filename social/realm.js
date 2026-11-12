@@ -15,12 +15,9 @@ class SocialRealm {
         if (Date.now() > Date.parse(request.deadline)) { throw new Failure('DEADLINE_EXPIRED'); }
         if (request.generation === '0') { throw new Failure('SESSION_NOT_OPEN'); }
         try {
-            await this.authority.authorize(request);
-            const raw = await this.store.run(client => client.get('/skymist/v1/sessions/' + request.game_account_id));
-            if (!raw) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
-            const owner = JSON.parse(raw);
-            if (owner.session_id !== request.session_id || owner.generation !== request.generation ||
-                !Object.keys(request.realm).every(field => owner[field] === request.realm[field])) { throw new Failure('STALE_SESSION'); }
+            // Authorization fences the lease to this request's session, generation and realm process.
+            const { lease } = await this.authority.authorizeSession(request);
+            const owner = { ...lease };
             const routeEpoch = properties.headers?.social_route_epoch;
             if (typeof routeEpoch !== 'string' || !/^[1-9][0-9]{0,19}$/.test(routeEpoch) ||
                 BigInt(routeEpoch) > 18446744073709551615n) { throw new Failure('INVALID_SOCIAL_ROUTE'); }

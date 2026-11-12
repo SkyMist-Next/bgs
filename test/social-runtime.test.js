@@ -17,8 +17,9 @@ function fixture(t) {
     const verified = Math.floor(Date.now() / 1000) - 60;
     const connection = { accountId: A, address: '127.0.0.1', applicationVersion: 26972,
         credentialVersion: '3', authenticatorGeneration: '2', authenticatorVerifiedAt: verified };
-    const world = { version: 1, account_id: A, game_account_id: G, session_id: 'session-world', generation: '9007199254741011',
-        namespace: 'test', realm_uid: 'realm', pod_uid: 'pod', instance_id: 'instance', build: 26972, address: '127.0.0.1',
+    const world = { version: 1, account_id: A, game_account_id: G, session_id: '5e55e55e-0000-4000-8000-000000000001', generation: '9007199254741011',
+        namespace: 'test', realm_uid: '5e55e55e-0000-4000-8000-000000000002', pod_uid: '5e55e55e-0000-4000-8000-000000000003',
+        instance_id: '5e55e55e-0000-4000-8000-000000000004', build: 26972, expansion: 6, address: '127.0.0.1',
         credential_version: '3', authenticator_generation: '2', authenticator_verified_at: verified };
     const connectionRoute = { type: 'connection', connectionId: 'first', address: connection.address, queueName: 'connection-queue' };
     const worldRoute = { type: 'world', owner: { ...clone(world), routeEpoch: '1' }, queueName: 'world-queue' };
@@ -208,7 +209,7 @@ test('current world owner requires process, game ownership and correctly mapped 
     assert.equal(owner.authenticatorVerifiedAt, f.state.world.authenticator_verified_at);
     const process = f.state.process;
     f.state.process = null; assert.equal(await f.runtime.current(f.worldRoute, A), null);
-    f.state.process = { ...process, instance_id: 'replacement' }; assert.equal(await f.runtime.current(f.worldRoute, A), null);
+    f.state.process = { ...process, instance_id: '5e55e55e-0000-4000-8000-0000000000ff' }; assert.equal(await f.runtime.current(f.worldRoute, A), null);
     f.state.process = process;
     f.state.games.get(G).accountId = B; assert.equal(await f.runtime.current(f.worldRoute, A), null);
     f.state.games.get(G).accountId = A;
@@ -670,7 +671,7 @@ test('inactive world presence keeps its route fence while the selected license l
     assert.equal(f.state.tables.SocialWorldRoute.size, 1);
     assert.equal((await f.runtime.refreshWorldRoute(owner, 'queue-inactive')).changed, false);
     assert.equal([...f.state.tables.SocialWorldRoute.values()][0].routeEpoch, '2');
-    f.state.process = { ...f.state.process, instance_id: 'replacement' };
+    f.state.process = { ...f.state.process, instance_id: '5e55e55e-0000-4000-8000-0000000000ff' };
     await f.runtime.pulse();
     assert.equal(f.state.tables.SocialWorldRoute.size, 0);
     await assert.rejects(f.runtime.refreshWorldRoute(owner, 'queue-inactive'), value => value === 0xA);

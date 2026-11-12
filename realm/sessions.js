@@ -3,12 +3,17 @@ const { wireProof, sameProof } = require('../utils/authenticator');
 const { id, Failure } = require('./contract');
 const { canonicalIP } = require('../utils/admin-state');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
-const OWNER_FIELDS = ['namespace', 'realm_uid', 'pod_uid', 'instance_id', 'game_account_id', 'account_id', 'session_id', 'build', 'expansion', 'address'];
-function sameOwner(actual, expected) { return OWNER_FIELDS.every(key => actual[key] === expected[key]) && sameProof(actual, expected); }
+// A claimant is the process and authenticated client that proposed a lease;
+// replaying the same claim is idempotent, any other claimant is rejected.
+const CLAIMANT_FIELDS = ['namespace', 'realm_uid', 'pod_uid', 'instance_id', 'game_account_id', 'account_id', 'session_id', 'build', 'expansion', 'address'];
+// A world incarnation is one opened session generation within one realm process.
+const WORLD_IDENTITY = ['account_id', 'game_account_id', 'session_id', 'generation', 'namespace', 'realm_uid', 'pod_uid', 'instance_id'];
+function sameClaimant(actual, expected) { return CLAIMANT_FIELDS.every(key => actual[key] === expected[key]) && sameProof(actual, expected); }
+function sameWorld(left, right) { return WORLD_IDENTITY.every(key => left[key] === right[key]); }
 function requireOwner(raw, expected) {
     if (!raw) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
     const actual = owner(JSON.parse(raw));
-    if (!sameOwner(actual, expected)) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
+    if (!sameClaimant(actual, expected)) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
     return actual;
 }
 function realmPrefix(uid) {
@@ -30,6 +35,36 @@ function owner(record) {
     if (!Number.isInteger(record.build) || record.build <= 0 || !Number.isInteger(record.expansion) || record.expansion < 0 || record.expansion > 127) { throw new Failure('INVALID_SESSION'); }
     return record;
 }
+function parseLease(raw) {
+    let record;
+    try { record = JSON.parse(raw); } catch { throw new Failure('INVALID_SESSION'); }
+    return owner(record);
+}
+// Strict read of one world session lease through any client, including a
+// WATCHed transaction client. Missing is null; a malformed record throws.
+async function readLease(client, gameAccountId) {
+    const raw = await client.get(leaseKey(gameAccountId));
+    return raw === null || raw === undefined ? null : parseLease(raw);
+}
+class WorldSessionLeases {
+    constructor(store, models) { this.store = store; this.models = models; }
+    read(gameAccountId) { return this.store.run(client => readLease(client, gameAccountId)); }
+    // Live means valid, matching the expected world incarnation (when given) and
+    // still owned by the realm process that holds the realm. Malformed is not live.
+    async live(gameAccountId, { expected, transaction } = {}) {
+        const key = leaseKey(gameAccountId);
+        const raw = await this.store.run(client => client.get(key));
+        if (raw === null || raw === undefined) { return null; }
+        let lease;
+        try { lease = parseLease(raw); } catch { return null; }
+        if (expected && !sameWorld(lease, expected)) { return null; }
+        if (this.models) {
+            const process = await this.models.RealmProcessOwner.findByPk(lease.realm_uid, { transaction, raw: true });
+            if (!process || process.instance_id !== lease.instance_id) { return null; }
+        }
+        return lease;
+    }
+}
 class Sessions {
     constructor(store) { this.store = store; }
     async issue(ticket, record) {
@@ -46,7 +81,7 @@ class Sessions {
             const existing = await client.get(leasePath);
             if (existing) {
                 const active = owner(JSON.parse(existing));
-                if (!sameOwner(active, proposed)) { throw new Failure('SESSION_ALREADY_ACTIVE'); }
+                if (!sameClaimant(active, proposed)) { throw new Failure('SESSION_ALREADY_ACTIVE'); }
                 return { commands: [], result: active };
             }
             if (await client.get(ticketPath) !== observed) { throw new Failure('TICKET_UNAVAILABLE'); }
@@ -103,9 +138,9 @@ class Sessions {
             if (record.session_id !== actual.session_id || record.generation !== actual.generation) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
             if (!/^[a-f0-9]{80}$/.test(record.key)) { throw new Failure('INVALID_CONTINUATION'); }
             const recordedOwner = owner(record.owner);
-            if (!sameOwner(recordedOwner, actual) || recordedOwner.generation !== actual.generation) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
+            if (!sameClaimant(recordedOwner, actual) || recordedOwner.generation !== actual.generation) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
             return { commands: [['DEL', key]], result: record };
         });
     }
 }
-module.exports = { Sessions, ticketKey, leaseKey, realmPrefix, owner };
+module.exports = { Sessions, WorldSessionLeases, readLease, sameClaimant, sameWorld, ticketKey, leaseKey, realmPrefix, owner };

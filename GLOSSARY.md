@@ -19,3 +19,5 @@ Social relationships belong to Battle.net accounts and span the licenses, builds
 **Legacy conversation** — A live group available to 15595 clients, whose participants are selected game accounts. It is not a Legion group feature.
 
 **Social session** — An authenticated Battle.net session whose subscriptions and legacy conversation membership can recover after a temporary social outage. Logout or expiry ends it.
+
+**World session lease** — The exclusive, expiring claim a realm process holds on one game account's authenticated world session. Its world identity is the session incarnation (session, generation and realm process). It fences gameplay and social publication; a malformed lease is never live.
