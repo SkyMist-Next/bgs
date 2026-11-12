@@ -1,266 +1,102 @@
 'use strict';
-const { sessionClient } = require('./support/memory-redis');
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const zlib = require('node:zlib');
 const Long = require('long');
 const GameUtilitiesService = require('../services/game_utilities');
+const { realmFixture, joinTickets, identity } = require('./support/realm-join-fixture');
 
-const identity = { connectionId: 'test-connection', address: '127.0.0.1' };
-const context = { identity };
+const GAME = '9007199254740993';
 function setup(build = 26972) {
-    const version = build === 15595 ? { versionMajor: 4, versionMinor: 3, versionRevision: 4, versionBuild: 15595 } : { versionMajor: 7, versionMinor: 3, versionRevision: 5, versionBuild: 26972 };
-    const logger = { debug() {}, error() {} };
-    const tickets = new Map(), ttls = new Map();
-    const metadata = {
-        '/aurora/services/WoWService/subRegions/1-1-0/virtualRealms/1-1-1': {
-            update: { name: 'Test', version },
-            realmUID: '11111111-1111-4111-8111-111111111111', namespace: 'test', expansion: build === 15595 ? 3 : 6, available: true, securityLevel: 0, region: 1, build, isHidden: true, isTournament: false, deleting: false, endpoints: [{ family: 1, addresses: [] }], gameServerId: 'server'
-        },
-        '/aurora/services/WoWService/subRegions/1-1-0/gameServers/server': { endpoints: [{ family: 1, addresses: [] }] }
-    };
-    const models = { GameAccountCharacters: { findAll: async () => [] }, GameAccountPrivilege: { findOne: async () => null }, IPBan: { findOne: async () => null }, Account: { findByPk: async () => ({ id: '1' }) },
-        GameAccount: { findAll: async () => [{ region: 1, program: 'WoW', expansion: build === 15595 ? 3 : 6 }], findByPk: async id => ({ id, accountId: '1', region: 1, expansion: build === 15595 ? 3 : 6, program: 'WoW', wowLicenseIndex: 2 }) } };
-    const store = {
-        transaction: async (keys, decide) => {
-            const result = await decide({ get: async key => tickets.has(key) ? (typeof tickets.get(key) === 'string' ? tickets.get(key) : JSON.stringify(tickets.get(key))) : null });
-            for (const [op, key, value] of result.commands) {
-                if (op === 'SET') { tickets.set(key, value.startsWith('{') ? JSON.parse(value) : value); }
-                else if (op === 'DEL') { tickets.delete(key); }
-            }
-            return result.result;
-        },
-        run: async operation => operation(sessionClient(async () => ({ accountId: '1', address: identity.address, applicationVersion: build }), {
-            get: async key => key.startsWith('/aurora/connections/') ? JSON.stringify({ accountId: '1', address: identity.address, applicationVersion: build }) : tickets.get(key) ?? null,
-            set: async (key, value, options) => {
-                if (options?.NX && tickets.has(key)) { return null; }
-                tickets.set(key, JSON.parse(value)); ttls.set(key, options?.EX); return 'OK';
-            } })),
-        setJSON: async (key, value, seconds) => { tickets.set(key, structuredClone(value)); ttls.set(key, seconds); },
-        getJSON: async key => {
-            if (!tickets.has(key)) { throw new Error('Missing ticket'); }
-            return structuredClone(tickets.get(key));
-        },
-        getMetadataJSON: async key => {
-            if (!metadata[key]) { throw new Error('Missing metadata'); }
-            return structuredClone(metadata[key]);
-        },
-        listMetadataJSON: async prefix => Object.fromEntries(Object.entries(metadata).filter(([key]) => key.startsWith(prefix))),
-        listMetadata: async () => metadata
-    };
-    return { service: new GameUtilitiesService({ logger, store, models, realmDirectory: store }), tickets, ttls, store, models, metadata };
+    const f = realmFixture(build);
+    f.service = new GameUtilitiesService({ logger: { debug() {}, error() {} }, store: f.redis, models: f.models, realmDirectory: f.realmDirectory });
+    return f;
 }
 const blob = (name, value) => ({ blobValue: Buffer.from(name + ':' + JSON.stringify(value) + '\0') });
-const unpack = buffer => zlib.inflateSync(buffer.subarray(4)).toString();
-
-async function ticket(service, requestedIdentity = { gameAccountID: '9007199254740993' }, client = {}) {
-    return service.commandHandlers.RealmListTicketRequest({
-        Identity: blob('JSONRealmListTicketIdentity', requestedIdentity),
-        ClientInfo: blob('JSONRealmListTicketClientInformation', { info: {
-            version: { versionMajor: 7, versionMinor: 3, versionRevision: 5, versionBuild: 26972 }, secret: Array(32).fill(7), ...client
-        } })
-    }, null, context);
+const unpack = buffer => JSON.parse(zlib.inflateSync(buffer.subarray(4)).toString().replace(/^[A-Za-z]+:/, '').replace(/\0$/, ''));
+async function call(service, attribute) {
+    const context = { identity, request: { attribute }, response: {} };
+    assert.equal(await service.ProcessClientRequest(context), 0);
+    return Object.fromEntries(context.response.attribute.map(a => [a.name, a.value]));
 }
+const ticketRequest = (f, identityJSON = { gameAccountID: GAME }) => [
+    { name: 'Command_RealmListTicketRequest_v1_b9', value: {} },
+    { name: 'Param_Identity', value: blob('JSONRealmListTicketIdentity', identityJSON) },
+    { name: 'Param_ClientInfo', value: blob('JSONRealmListTicketClientInformation', f.clientInfo()) }
+];
+const joinRequest = (ticket, version = 'v1') => [
+    { name: 'Command_RealmJoinRequest_' + version + '_b9', value: { stringValue: '1-1-0' } },
+    { name: 'Param_RealmListTicket', value: ticket },
+    { name: 'Param_RealmAddress', value: { uintValue: Long.fromNumber(0x01010001) } }
+];
 
-test('realm ticket, discovery, and join preserve payloads and identity using the injected directory', async () => {
-    const { service, tickets } = setup();
-    const params = await ticket(service);
-    const list = await service.commandHandlers.RealmListRequest(params, { stringValue: '1-1-0' }, context);
-    assert.match(unpack(list.RealmList.blobValue), /"name":"Test"/);
-    assert.match(unpack(list.RealmList.blobValue), /"flags":2/);
-    const response = await service.commandHandlers.RealmJoinRequest({ ...params, RealmAddress: { uintValue: Long.fromNumber(0x01010001) } }, { stringValue: '1-1-0' }, context);
-    assert.match(unpack(response.ServerAddresses.blobValue), /"family":1/);
-    assert.equal(response.RealmJoinTicket.blobValue.length, 20);
-    assert.equal(response.JoinSecret.blobValue.length, 32);
-    const stored = [...tickets.values()].find(value => value.join_secret);
-    assert.equal(stored.version, 1);
-    assert.equal(stored.game_account_id, '9007199254740993');
-    assert.equal(stored.client_secret, '07'.repeat(32));
-    assert.equal(stored.expansion, 6);
-    assert.match([...tickets.keys()].find(key => key.includes('/tickets/')), /^\/skymist\/v1\/realms\/[a-f0-9-]+\/tickets\/[a-f0-9]{40}$/);
+test('Legion ticket, realm list, join and discovery round-trip through the attribute protocol', async () => {
+    const f = setup();
+    f.state.counts = [{ realm_uid: f.rows[0].realm_uid, character_count: 4 }];
+    const { Param_RealmListTicket: ticket } = await call(f.service, ticketRequest(f));
+    assert.equal(ticket.blobValue.length, 20);
+    const list = await call(f.service, [{ name: 'Command_RealmListRequest_v1_b9', value: { stringValue: '1-1-0' } }, { name: 'Param_RealmListTicket', value: ticket }]);
+    const updates = unpack(list.Param_RealmList.blobValue).updates;
+    assert.equal(updates[0].update.name, 'Test');
+    assert.equal(updates[0].update.wowRealmAddress, 0x01010001);
+    assert.deepEqual(unpack(list.Param_CharacterCountList.blobValue).counts, [{ count: 4, wowRealmAddress: 0x01010001 }]);
+    const joined = await call(f.service, joinRequest(ticket));
+    assert.deepEqual(unpack(joined.Param_ServerAddresses.blobValue), { families: [{ family: 1, addresses: [] }] });
+    assert.equal(joined.Param_RealmJoinTicket.blobValue.length, 20);
+    assert.equal(joined.Param_JoinSecret.blobValue.length, 32);
+    assert.equal(joined.Param_RealmAccountName, undefined);
+    assert.equal(joinTickets(f.redis)[0].record.join_secret, joined.Param_JoinSecret.blobValue.toString('hex'));
     const discovery = { identity, request: { attributeKey: 'Command_RealmListRequest_v1_b9' }, response: { attributeValue: [] } };
-    assert.equal(await service.GetAllValuesForAttribute(discovery), 0);
+    assert.equal(await f.service.GetAllValuesForAttribute(discovery), 0);
     assert.deepEqual(discovery.response.attributeValue.map(value => value.stringValue), ['1-1-0']);
+    assert.equal(await f.service.GetAllValuesForAttribute({ ...discovery, request: { attributeKey: 'Unknown' } }), 0xBC7);
 });
 
-const join = (service, params, address = 0x01010001) => service.commandHandlers.RealmJoinRequest({ ...params,
-    RealmAddress: { uintValue: Long.fromNumber(address) } }, { stringValue: '1-1-0' }, context);
-const list = (service, params) => service.commandHandlers.RealmListRequest(params, { stringValue: '1-1-0' }, context);
-const status = code => error => error === code;
-
-test('realm-list ticket creation failure reports that the ticket could not be generated', async () => {
-    const { service, store } = setup();
-    store.setJSON = async () => { throw new Error('Redis unavailable'); };
-    await assert.rejects(ticket(service), status(0x80000076));
-});
-test('realm join reports the failing stage instead of a generic status', async () => {
-    const unknown = { RealmListTicket: { blobValue: Buffer.from('unknown') } };
-    let f = setup();
-    await assert.rejects(join(f.service, await ticket(f.service), 0x01010002), status(0x8000006B));
-    f = setup(); delete f.metadata['/aurora/services/WoWService/subRegions/1-1-0/gameServers/server'];
-    await assert.rejects(join(f.service, await ticket(f.service)), status(0x8000012F));
-    f = setup();
-    await assert.rejects(join(f.service, unknown), status(0x8000012D));
-    const issued = await ticket(f.service);
-    await assert.rejects(f.service.commandHandlers.RealmJoinRequest({ ...issued, RealmAddress: { uintValue: Long.fromNumber(0x01010001) } },
-        { stringValue: '1-1-0' }, { identity: { ...identity, connectionId: 'another' } }), status(0x8000012D));
-    f.metadata['/aurora/services/WoWService/subRegions/1-1-0/virtualRealms/1-1-1'].available = false;
-    await assert.rejects(join(f.service, issued), status(0x80000075));
-});
-test('realm list reports a missing list or ticket distinctly', async () => {
-    let f = setup(); f.store.listMetadataJSON = async () => { throw new Error('Redis unavailable'); };
-    await assert.rejects(list(f.service, await ticket(f.service)), status(0x8000006D));
-    f = setup();
-    await assert.rejects(list(f.service, { RealmListTicket: { blobValue: Buffer.from('unknown') } }), status(0x8000012D));
-    f = setup(); f.models.GameAccountCharacters.findAll = async () => { throw new Error('SQL unavailable'); };
-    await assert.rejects(list(f.service, await ticket(f.service)), status(0x80000075));
-});
-test('realm-list and Legion join tickets expire', async () => {
-    const { service, ttls } = setup();
-    const params = await ticket(service);
-    assert.equal(ttls.get('/aurora/services/GameUtilitiesService/realmListTickets/' + params.RealmListTicket.blobValue.toString('hex')), 300);
-    await join(service, params);
-    const joinTicket = [...ttls.keys()].find(key => key.includes('/tickets/'));
-    assert.equal(ttls.get(joinTicket), 60);
-});
-test('realm discovery returns the selected GameAccount character counts through the model API', async () => {
-    const { service, models } = setup();
-    models.GameAccountCharacters.findAll = async ({ where }) => {
-        assert.equal(where.game_account_id, '9007199254740993');
-        return [{ realm_uid: '11111111-1111-4111-8111-111111111111', character_count: 4 }];
-    };
-    const params = await ticket(service);
-    const list = await service.commandHandlers.RealmListRequest(params, { stringValue: '1-1-0' }, context);
-    assert.match(unpack(list.CharacterCountList.blobValue), /"count":4/);
+test('Cataclysm v0 join returns the account alias and realm key attributes', async () => {
+    const f = setup(15595);
+    const { Param_RealmListTicket: ticket } = await call(f.service, ticketRequest(f));
+    const joined = await call(f.service, joinRequest(ticket, 'v0'));
+    assert.equal(joined.Param_RealmAccountName.stringValue, '1#2');
+    assert.equal(joined.Param_RealmSessionKey.blobValue.length, 40);
+    assert.equal(joined.Param_RealmJoinTicket.blobValue.length, 20);
+    assert.equal(joined.Param_JoinSecret, undefined);
 });
 
-test('realm tickets cannot cross connections or survive a new game-account ban or reassignment', async () => {
-    const { service, models } = setup();
-    const issued = await ticket(service);
-    await assert.rejects(service.commandHandlers.RealmListRequest(issued, { stringValue: '1-1-0' },
-        { identity: { ...identity, connectionId: 'another' } }));
-    models.GameAccount.findByPk = async id => ({ id, accountId: '1', isBanned: true, program: 'WoW' });
-    await assert.rejects(service.commandHandlers.RealmListRequest(issued, { stringValue: '1-1-0' }, context));
-    await assert.rejects(ticket(service));
-    models.GameAccount.findByPk = async id => ({ id, accountId: '2', program: 'WoW' });
-    await assert.rejects(service.commandHandlers.RealmJoinRequest({ ...issued, RealmAddress: { uintValue: Long.fromNumber(0x01010001) } },
-        { stringValue: '1-1-0' }, context));
-});
-
-
-test('Legion clients cannot issue realm-list tickets for Cataclysm licenses', async () => {
-    const { service, models, tickets } = setup();
-    models.GameAccount.findByPk = async id => ({ id, accountId: '1', region: 1, expansion: 3, program: 'WoW' });
-    await assert.rejects(ticket(service), error => error === 10);
-    assert.equal(tickets.size, 0);
-});
-
-test('Legion numeric gameAccountID issues a ticket with the normalized internal identity', async () => {
-    const { service, tickets } = setup();
-    await ticket(service, { gameAccountID: 42, gameAccountRegion: 1 });
-    assert.equal([...tickets.values()][0].identity.gameAccountId, '42');
-});
-
-test('invalid or unauthorized realm-ticket identities never write tickets', async () => {
-    for (const supplied of [{}, { gameAccountId: 42 }, { gameAccountID: 0 }, { gameAccountID: 'invalid' }]) {
-        const { service, tickets } = setup();
-        await assert.rejects(ticket(service, supplied), error => error === 10);
-        assert.equal(tickets.size, 0);
+test('malformed JSON attribute payloads are rejected before any ticket is written', async () => {
+    for (const value of [{ blobValue: Buffer.from('JSONRealmListTicketIdentity:{}') }, { blobValue: Buffer.from('Other:{}\0') },
+        { blobValue: Buffer.from('JSONRealmListTicketIdentity:{\0') }, { blobValue: Buffer.from([0xFF, 0]) }]) {
+        const f = setup(), attributes = ticketRequest(f);
+        attributes[1] = { ...attributes[1], value };
+        await assert.rejects(f.service.ProcessClientRequest({ identity, request: { attribute: attributes }, response: {} }), error => error === 0xA);
+        assert.equal(f.redis.values.size, 1);
     }
-    for (const overrides of [{ accountId: '2' }, { isBanned: true }, { isSuspended: true }, { program: 'D3' }]) {
-        const { service, models, tickets } = setup();
-        models.GameAccount.findByPk = async id => ({ id, accountId: '1', region: 1, program: 'WoW', ...overrides });
-        await assert.rejects(ticket(service), error => error === 10);
-        assert.equal(tickets.size, 0);
-    }
-});
-
-test('offline or incompatible realms cannot issue a join ticket', async () => {
-    for (const overrides of [{ available: false }, { build: 15595 }, { region: 2 }, { securityLevel: 3 }]) {
-        const { service, store, tickets } = setup();
-        const issued = await ticket(service);
-        const original = store.getMetadataJSON;
-        store.getMetadataJSON = async key => ({ ...await original(key), ...overrides });
-        await assert.rejects(service.commandHandlers.RealmJoinRequest({ ...issued, RealmAddress: { uintValue: Long.fromNumber(0x01010001) } }, { stringValue: '1-1-0' }, context));
-        assert.equal([...tickets.values()].filter(value => value.join_secret).length, 0);
-    }
-});
-
-test('realm list preserves all sixteen ID bits and unsigned region bits', async () => {
-    const { service, store } = setup();
-    store.listMetadataJSON = async () => ({ '/aurora/services/WoWService/subRegions/1-1-0/virtualRealms/1-1-513': {
-        expansion: 6,
-        update: { name: 'Wide ID', version: { versionMajor: 7, versionMinor: 3, versionRevision: 5, versionBuild: 26972 } }
-    } });
-    const issued = await ticket(service);
-    const listed = await service.commandHandlers.RealmListRequest(issued, { stringValue: '1-1-0' }, context);
-    assert.match(unpack(listed.RealmList.blobValue), /"wowRealmAddress":16843265/);
-});
-
-test('native numeric platform FourCCs become canonical RealmJoin platform strings', async () => {
-    for (const [platform, expected] of [[1466840628, 'Wn64'], [0x57696E00, 'Win'], [0x4D633634, 'Mc64'], ['Win', 'Win']]) {
-        const { service, tickets } = setup();
-        const issued = await ticket(service, undefined, { platform });
-        // Existing list tickets can predate canonical platform storage.
-        for (const value of tickets.values()) { if (value.info) value.info.platform = platform; }
-        await service.commandHandlers.RealmJoinRequest({ ...issued, RealmAddress: { uintValue: Long.fromNumber(0x01010001) } },
-            { stringValue: '1-1-0' }, context);
-        assert.equal([...tickets.values()].find(value => value.join_secret).platform, expected);
-    }
-});
-
-test('invalid platform metadata is rejected before writing a RealmList ticket', async () => {
-    for (const platform of [-1, 0x100000000, 1.5, 0, null, {}, 'too-long', 0xD76E3634]) {
-        const { service, tickets } = setup();
-        await assert.rejects(ticket(service, undefined, { platform }), error => error === 10);
-        assert.equal(tickets.size, 0);
-    }
-});
-
-test('Cataclysm v0 join returns the stable alias and raw key while preserving the independent account ID', async () => {
-    const { service, tickets } = setup(15595);
-    const params = await ticket(service, undefined, { version: { versionMajor: 4, versionMinor: 3, versionRevision: 4, versionBuild: 15595 } });
-    const call = { identity, request: { attribute: [
-        { name: 'Command_RealmJoinRequest_v0_b9', value: { stringValue: '1-1-0' } },
-        { name: 'Param_RealmListTicket', value: params.RealmListTicket },
-        { name: 'Param_RealmAddress', value: { uintValue: Long.fromNumber(0x01010001) } }
-    ] }, response: {} };
-    assert.equal(await service.ProcessClientRequest(call), 0);
-    const response = Object.fromEntries(call.response.attribute.map(a => [a.name, a.value]));
-    assert.equal(response.Param_RealmAccountName.stringValue, '1#2');
-    assert.equal(response.Param_RealmSessionKey.blobValue.length, 40);
-    assert.equal(response.Param_RealmJoinTicket.blobValue.length, 20);
-    assert.equal(response.Param_JoinSecret, undefined);
-    const record = [...tickets.values()].find(value => value.auth_protocol === 'wow-15595-v0');
-    assert.equal(record.game_account_id, '9007199254740993');
-    assert.equal(record.account_id, '1');
-    assert.equal(record.wow_license_index, 2);
-    assert.equal(record.realm_key, response.Param_RealmSessionKey.blobValue.toString('hex'));
-    assert.equal(record.expires_at_ms - record.issued_at_ms, 60000);
-    assert.equal(record.client_secret, undefined);
 });
 
 test('wire dispatch rejects unsupported versions, duplicate attributes, wrong types and cross-build joins before issuance', async () => {
-    const { service, tickets } = setup();
-    const params = await ticket(service);
-    const attributes = [
-        { name: 'Command_RealmJoinRequest_v1_b9', value: { stringValue: '1-1-0' } },
-        { name: 'Param_RealmListTicket', value: params.RealmListTicket },
-        { name: 'Param_RealmAddress', value: { uintValue: Long.fromNumber(0x01010001) } }
-    ];
-    const call = list => service.ProcessClientRequest({ identity, request: { attribute: list }, response: {} });
+    const f = setup();
+    const { Param_RealmListTicket: ticket } = await call(f.service, ticketRequest(f));
+    const attributes = joinRequest(ticket);
+    const dispatch = list => f.service.ProcessClientRequest({ identity, request: { attribute: list }, response: {} });
     for (const version of ['v2_b9', 'v1_b8']) {
-        await assert.rejects(call([{ ...attributes[0], name: 'Command_RealmJoinRequest_' + version }, ...attributes.slice(1)]), error => error === 0x84D3);
+        await assert.rejects(dispatch([{ ...attributes[0], name: 'Command_RealmJoinRequest_' + version }, ...attributes.slice(1)]), error => error === 0x84D3);
     }
-    await assert.rejects(call([{ ...attributes[0], name: 'Command_RealmJoinRequest_v0_b9' }, ...attributes.slice(1)]), error => error === 10);
+    await assert.rejects(dispatch([{ ...attributes[0], name: 'Command_RealmJoinRequest_v0_b9' }, ...attributes.slice(1)]), error => error === 10);
     for (const list of [[...attributes, attributes[0]], [...attributes, attributes[1]],
         [attributes[0], { ...attributes[1], value: { stringValue: 'not-a-blob' } }, attributes[2]],
         [attributes[0], attributes[1], { ...attributes[2], value: { uintValue: Long.fromString('4294967297') } }],
         [{ ...attributes[0], value: { stringValue: '2-1-0' } }, ...attributes.slice(1)],
         [attributes[0], { ...attributes[1], value: { blobValue: Buffer.alloc(19) } }, attributes[2]]]) {
-        await assert.rejects(call(list), error => error === 10);
+        await assert.rejects(dispatch(list), error => error === 10);
     }
-    assert.equal([...tickets.values()].filter(v => v.join_secret || v.realm_key).length, 0);
-    assert.equal(await call(attributes), 0);
+    assert.equal(joinTickets(f.redis).length, 0);
+    assert.equal(await dispatch(attributes), 0);
+});
+
+test('command failures keep their realm status codes on the wire', async () => {
+    const f = setup();
+    const { Param_RealmListTicket: ticket } = await call(f.service, ticketRequest(f));
+    f.rows[0].available = 0;
+    await assert.rejects(f.service.ProcessClientRequest({ identity, request: { attribute: joinRequest(ticket) }, response: {} }), error => error === 0x80000075);
+    await assert.rejects(f.service.ProcessClientRequest({ identity, request: { attribute: joinRequest({ blobValue: Buffer.alloc(20) }) }, response: {} }), error => error === 0x8000012D);
 });
