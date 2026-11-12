@@ -31,7 +31,7 @@ function fixture() {
         sessionBlocked: async () => control.sessionBlocked,
         selectGame: async (current, selected) => { current.gameAccountId = selected; },
         graph: { assertAccess: async () => { if (!control.friends) { throw new SocialError('NOT_FRIENDS'); } },
-            project: async () => control.friends ? { realIdVisible: control.rid, givenName: 'Private', surname: 'Name' } : null },
+            project: async (actor, target) => actor === target || control.friends ? { realIdVisible: control.rid, fullName: control.rid ? 'Private Name' : '' } : null },
         recipients: async () => [], current: async () => null,
         subscribe: async (...args) => subscriptions.push(args), unsubscribe: async (...args) => subscriptions.push(args)
     };
