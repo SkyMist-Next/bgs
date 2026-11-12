@@ -10,6 +10,7 @@ const Service = require('./service');
 
 const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const ProcessId = rootNamespace.lookupType('bgs.protocol.ProcessId');
+const BindResponse = loadProto('proto/bgs/low/pb/client/connection_service.proto').lookupType('bgs.protocol.connection.v1.BindResponse');
 
 class ConnectionService extends Service {
     constructor({ logger, store, amqpConnection, isAccepting = () => store.healthy }) {
@@ -53,21 +54,23 @@ class ConnectionService extends Service {
                 context.response.clientId = context.request.clientId;
             }
 
-            if (context.response.useBindlessRpc !== null) {
-                context.connection.setBindlessRPC(context.request.useBindlessRpc);
+            // use_bindless_rpc defaults to true in ConnectRequest.
+            context.connection.setBindlessRPC(context.request.useBindlessRpc !== false);
+
+            const registered = [];
+            const services = await this.store.listMetadata('/aurora/services/');
+            for (const [path, value] of Object.entries(services)) {
+                if (/^\/aurora\/services\/[^/]+\/hash$/.test(path)) {
+                    const hash = Number(value);
+                    if (!Number.isInteger(hash) || hash < 0 || hash > 0xFFFFFFFF) {
+                        throw new Error('Invalid registered service hash');
+                    }
+                    registered.push(hash);
+                }
             }
 
             if (context.connection.getBindlessRPC()) {
-                const services = await this.store.listMetadata('/aurora/services/');
-                for (const [path, value] of Object.entries(services)) {
-                    if (/^\/aurora\/services\/[^/]+\/hash$/.test(path)) {
-                        const hash = Number(value);
-                        if (!Number.isInteger(hash) || hash < 0 || hash > 0xFFFFFFFF) {
-                            throw new Error('Invalid registered service hash');
-                        }
-                        context.connection.exportedServiceAdd(hash);
-                    }
-                }
+                for (const hash of registered) { context.connection.exportedServiceAdd(hash); }
             }
 
             context.response.serverId = ProcessId.create();
@@ -77,14 +80,10 @@ class ConnectionService extends Service {
             context.response.useBindlessRpc = context.connection.getBindlessRPC();
 
             if (!context.connection.getBindlessRPC()) {
-                for (let boundService in context.request.bindRequest.importedService) {
-                    context.response.bindResponse.importedServiceId.push(context.connection.getExportedServiceId(boundService.hash));
+                const assigned = context.connection.bind(context.request.bindRequest, new Set(registered));
+                if (assigned.length) {
+                    context.response.bindResponse = BindResponse.create({ importedServiceId: assigned });
                 }
-
-                for(let boundService in context.request.bindRequest.exportedService) {
-                    context.connection.importedServiceAdd(boundService);
-                }
-
                 context.response.bindResult = 0;
             }
 

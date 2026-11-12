@@ -122,3 +122,37 @@ test('Connect waits for service discovery and propagates discovery rejection', a
     store.listMetadata = async () => { throw new Error('Redis unavailable'); };
     await assert.rejects(service.Connect(context()), error => error === 1);
 });
+
+test('Connect honours the bindless default and applies non-bindless bindings to the connection', async () => {
+    const { EventEmitter } = require('node:events');
+    const Connection = require('../connection');
+    const channel = { on() {}, assertQueue: async () => ({ queue: 'client' }), consume: async () => ({ consumerTag: 'tag' }), close: async () => {} };
+    const store = { listMetadata: async () => ({ '/aurora/services/AuthenticationService/hash': String(0x0DECFC01), '/aurora/services/GameUtilitiesService/hash': String(0x3FC1274D) }) };
+    const service = new ConnectionService({ logger: { error() {}, debug() {} }, store, amqpConnection: { createChannel: async () => channel }, isAccepting: () => true });
+    const requestType = service.rootNamespace.lookupType('bgs.protocol.connection.v1.ConnectRequest');
+    const responseType = service.rootNamespace.lookupType('bgs.protocol.connection.v1.ConnectResponse');
+    const connect = async request => {
+        const socket = Object.assign(new EventEmitter(), { remoteAddress: '127.0.0.1', setTimeout() {}, destroy() { this.destroyed = true; } });
+        const connection = new Connection(socket, { serviceHash: service.getServiceHash(), serviceName: 'fixture', logger: { debug() {}, error() {} }, onMessage() {} });
+        const context = { request: requestType.decode(requestType.encode(requestType.fromObject(request)).finish()), response: responseType.create(), connection };
+        const status = await service.Connect(context);
+        return { status, connection, response: responseType.decode(responseType.encode(context.response).finish()) };
+    };
+
+    const bindless = await connect({});
+    assert.equal(bindless.response.useBindlessRpc, true);
+    assert.equal(bindless.connection.getBindlessRPC(), true);
+
+    const bound = await connect({ useBindlessRpc: false, bindRequest: {
+        importedService: [{ hash: 0x0DECFC01, id: 1 }], deprecatedImportedServiceHash: [0x3FC1274D],
+        exportedService: [{ hash: 0x71240E35, id: 4 }] } });
+    assert.equal(bound.status, 0);
+    assert.equal(bound.response.useBindlessRpc, false);
+    assert.equal(bound.response.bindResult, 0);
+    assert.deepEqual(bound.response.bindResponse.importedServiceId, [2]);
+    assert.equal(bound.connection.exportedServices[1], 0x0DECFC01);
+    assert.equal(bound.connection.exportedServices[2], 0x3FC1274D);
+    assert.equal(bound.connection.importedServices[0x71240E35], 4);
+
+    await assert.rejects(connect({ useBindlessRpc: false, bindRequest: { importedService: [{ hash: 0x12345678, id: 1 }] } }), error => error === 1);
+});
