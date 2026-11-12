@@ -4,7 +4,7 @@ const { jsonColumn: json } = require('../utils/json-column');
 const Service = require('./service');
 const wire = require('../social/wire');
 const presence = require('../social/presence-wire');
-const { ownerFor, gameEntity, storedId } = require('../social/friends-wire');
+const { sessionFor, gameEntity, storedId } = require('../social/friends-wire');
 const { registerSocialHandlers } = require('../social/errors');
 const { blocked } = require('../utils/admin-state');
 const entity = value => ({ high: value.high.toString(), low: value.low.toString() });
@@ -14,7 +14,7 @@ class PresenceService extends Service {
     constructor(dependencies) {
         super('PresenceService', 'proto/bgs/low/pb/client/presence_service.proto', dependencies);
         this.runtime = dependencies.runtime; this.models = dependencies.models; this.worldPresence = dependencies.worldPresence;
-        this.runtime.register('presence', { snapshot: (owner, row) => this.project(owner, row), diff: presence.diff });
+        this.runtime.register('presence', { snapshot: (session, row) => this.project(session, row), diff: presence.diff });
         // Ownership rows bind the selected license to the authenticated connection. They produce no events.
         this.runtime.register('presence-owner', { snapshot: async () => ({}), diff: () => [] });
         registerSocialHandlers(this, ['Subscribe', 'Unsubscribe', 'Query', 'Update', 'Ownership', 'SubscribeNotification']);
@@ -27,10 +27,10 @@ class PresenceService extends Service {
         const game = await gameEntity(this.models, value);
         return { subject: 'g:' + storedId(game.id), accountId: storedId(game.accountId), game, entity: entity(game.entityId) };
     }
-    async access(owner, target) {
-        if (owner.accountId !== target.accountId) {
-            if (await this.runtime.sessionBlocked(owner.sessionKey, target.accountId)) { throw 0x1391; }
-            await this.runtime.graph.assertAccess(owner.accountId, target.accountId, 'presence');
+    async access(session, target) {
+        if (session.accountId !== target.accountId) {
+            if (await this.runtime.sessionBlocked(session.sessionKey, target.accountId)) { throw 0x1391; }
+            await this.runtime.graph.assertAccess(session.accountId, target.accountId, 'presence');
         }
     }
     filter(request) {
@@ -55,13 +55,13 @@ class PresenceService extends Service {
             return values;
         });
     }
-    async owned(context, owner, target) {
-        if (target.accountId !== owner.accountId || owner.gameAccountId && target.game && storedId(target.game.id) !== owner.gameAccountId) { throw 0xA; }
+    // Owning a game account's presence selects it for this session and keeps it online.
+    async owned(session, target) {
+        if (target.accountId !== session.accountId || session.gameAccountId && target.game && storedId(target.game.id) !== session.gameAccountId) { throw 0xA; }
         if (target.game && blocked(target.game)) { throw 0xA; }
         if (target.game) {
-            await this.runtime.selectGame(owner, storedId(target.game.id));
-            await this.runtime.subscribe(context, { ...owner, gameAccountId: storedId(target.game.id) },
-                'presence-owner', target.subject, '0', {}, {});
+            await session.selectGame(storedId(target.game.id));
+            await session.subscribe('presence-owner', target.subject, '0', {}, {});
         }
     }
     async gameOnline(game) {
@@ -77,12 +77,12 @@ class PresenceService extends Service {
         }
         return { online: false, character: null };
     }
-    async fields(owner, target) {
+    async fields(session, target) {
         const f = (number, value, uniqueId) => presence.field(presence.BN, target.game ? 2 : 1, number, value, uniqueId);
         if (!target.game) {
             const profile = await this.models.Account.findByPk(target.accountId);
             if (blocked(profile)) { return []; }
-            const projection = await this.runtime.graph.project(owner.accountId, target.accountId);
+            const projection = await this.runtime.graph.project(session.accountId, target.accountId);
             if (!projection) { return []; }
             const games = await this.models.GameAccount.findAll({ where: { accountId: target.accountId }, order: [['id', 'ASC']], limit: 257 });
             if (games.length > 256) { throw 0x25; }
@@ -118,10 +118,10 @@ class PresenceService extends Service {
             field(10, { stringValue: character.name }), field(11, { uintValue: String(character.realm_address & 0xffff) }),
             field(12, { uintValue: (BigInt(character.guid) & 0xffffffffffffffffn).toString() })];
     }
-    async project(owner, row) {
+    async project(session, row) {
         const target = await this.resolve(json(row.filter).entity);
         let fields;
-        try { await this.access(owner, target); fields = await this.fields(owner, target); }
+        try { await this.access(session, target); fields = await this.fields(session, target); }
         catch (error) {
             if (error !== 0x1391 && error.code !== 'BLOCKED' && error.code !== 'NOT_FRIENDS' && error.code !== 'ACCOUNT_NOT_FOUND') { throw error; }
             fields = []; // Withdraw every previously visible field when access is revoked.
@@ -129,32 +129,32 @@ class PresenceService extends Service {
         return { entity: target.entity, fields: presence.selected(fields, json(row.filter)) };
     }
     async Subscribe(context) {
-        const owner = await ownerFor(this.runtime, this.models, context);
+        const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        await this.access(owner, target);
+        await this.access(session, target);
         const objectId = wire.uint64(context.request.objectId);
-        if (owner.accountId === target.accountId && target.game) { await this.owned(context, owner, target); }
-        await this.runtime.subscribe(context, owner, 'presence', target.subject, objectId, { ...this.filter(context.request), entity: target.entity });
+        if (session.accountId === target.accountId && target.game) { await this.owned(session, target); }
+        await session.subscribe('presence', target.subject, objectId, { ...this.filter(context.request), entity: target.entity });
         return 0;
     }
     async Unsubscribe(context) {
-        const owner = await ownerFor(this.runtime, this.models, context);
+        const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        await this.runtime.unsubscribe(owner, 'presence', target.subject,
+        await session.unsubscribe('presence', target.subject,
             Object.hasOwn(context.request, 'objectId') ? wire.uint64(context.request.objectId) : undefined);
         return 0;
     }
     async Query(context) {
-        const owner = await ownerFor(this.runtime, this.models, context);
+        const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        await this.access(owner, target);
-        context.response.field = presence.selected(await this.fields(owner, target), this.filter(context.request));
+        await this.access(session, target);
+        context.response.field = presence.selected(await this.fields(session, target), this.filter(context.request));
         return 0;
     }
     async Update(context) {
-        const owner = await ownerFor(this.runtime, this.models, context);
+        const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        if (target.accountId !== owner.accountId) { throw 0xA; }
+        if (target.accountId !== session.accountId) { throw 0xA; }
         const operations = context.request.fieldOperation || [];
         if (!operations.length || operations.length > 16) { throw 0x7; }
         const changes = {};
@@ -179,21 +179,21 @@ class PresenceService extends Service {
                 if (changes.dnd) { changes.afk = false; }
             } else { throw 0xBC1; } // Identity, online state and active character are server-owned.
         }
-        await this.owned(context, owner, target);
+        await this.owned(session, target);
         await this.state(target, undefined, changes);
         return 0;
     }
     async Ownership(context) {
-        const owner = await ownerFor(this.runtime, this.models, context);
+        const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        if (target.accountId !== owner.accountId) { throw 0xA; }
-        if (context.request.releaseOwnership) { await this.runtime.unsubscribe(owner, 'presence-owner', target.subject); }
-        else { await this.owned(context, owner, target); }
+        if (target.accountId !== session.accountId) { throw 0xA; }
+        if (context.request.releaseOwnership) { await session.unsubscribe('presence-owner', target.subject); }
+        else { await this.owned(session, target); }
         return 0;
     }
     async SubscribeNotification(context) {
-        const owner = await ownerFor(this.runtime, this.models, context);
-        await this.access(owner, await this.resolve(context.request.entityId));
+        const session = await sessionFor(this.runtime, this.models, context);
+        await this.access(session, await this.resolve(context.request.entityId));
         return 0;
     }
 }

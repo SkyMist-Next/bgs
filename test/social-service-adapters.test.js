@@ -10,6 +10,7 @@ const ReportService = require('../services/report');
 const wire = require('../social/wire');
 const friendsWire = require('../social/friends-wire');
 const { SocialError } = require('../social/errors');
+const { fakeSession } = require('./support/social-session');
 const { fixture } = require('./support/social-graph-fixture');
 
 const A = '9007199254740993';
@@ -54,25 +55,26 @@ function setup() {
     for (const method of ['invite', 'accept', 'revoke', 'decline', 'remove', 'setNote', 'block', 'unblock', 'report']) {
         graph[method] = async input => { calls.push([method, input]); return { changed: true, revisions: { [A]: '1', [B]: '1' } }; };
     }
-    const runtime = {
-        graph,
-        owner: async context => { if (context.identity?.sessionKey !== owner.sessionKey) { throw 0xA; } return owner; },
-        operationId: context => createHash('sha256').update(context.operation || 'operation').digest('hex'),
-        subscribe: async (...args) => { calls.push(['subscribe', ...args]); return {}; },
-        unsubscribe: async (...args) => calls.push(['unsubscribe', ...args]),
-        register: (kind, hooks) => registrations.set(kind, hooks),
-        sessionBlocks: async owner => [...(sessionBlocks.get(owner.sessionKey) || [])].map(accountId => ({ accountId, battleTag: 'Session#1234' })),
-        blockSession: async (owner, accountId) => {
-            calls.push(['blockSession', owner.sessionKey, accountId]);
-            if (!sessionBlocks.has(owner.sessionKey)) { sessionBlocks.set(owner.sessionKey, new Set()); }
-            sessionBlocks.get(owner.sessionKey).add(accountId);
+    // Session blocks are kept per session key so another license's session stays independent.
+    const session = (data = owner, context = null) => fakeSession(data, { context, calls, methods: current => ({
+        operationId: () => createHash('sha256').update(context?.operation || 'operation').digest('hex'),
+        sessionBlocks: async () => [...(sessionBlocks.get(current.sessionKey) || [])].map(accountId => ({ accountId, battleTag: 'Session#1234' })),
+        blockForSession: async accountId => {
+            calls.push(['blockForSession', current.sessionKey, accountId]);
+            if (!sessionBlocks.has(current.sessionKey)) { sessionBlocks.set(current.sessionKey, new Set()); }
+            sessionBlocks.get(current.sessionKey).add(accountId);
             return true;
         },
-        unblockSession: async (owner, accountId) => sessionBlocks.get(owner.sessionKey)?.delete(accountId) || false,
+        unblockForSession: async accountId => sessionBlocks.get(current.sessionKey)?.delete(accountId) || false
+    }) });
+    const runtime = {
+        graph,
+        session: async context => { if (context.identity?.sessionKey !== owner.sessionKey) { throw 0xA; } return session(owner, context); },
+        register: (kind, hooks) => registrations.set(kind, hooks),
         reconcile: async accountId => calls.push(['reconcile', accountId])
     };
     const deps = { models, runtime, logger: { error() {}, debug() {} } };
-    return { owner, models, runtime, state, calls, queries, registrations, rows, games, graph,
+    return { owner, session, models, runtime, state, calls, queries, registrations, rows, games, graph,
         friends: new FriendsService(deps), blocks: new UserManagerService(deps), reports: new ReportService(deps) };
 }
 
@@ -114,8 +116,8 @@ test('Subscribe advertises recovered role names, keeps uint64 object/invitation 
     assert.equal(result.response.receivedInvitations[0].inviterName, 'Friend#1234');
     assert.equal(JSON.stringify(result.response).includes('Private'), false);
     const subscribed = f.calls.find(call => call[0] === 'subscribe');
-    assert.equal(subscribed[3], 'friends'); assert.equal(subscribed[4], A); assert.equal(subscribed[5], OBJECT);
-    assert.deepEqual(subscribed[7], f.state);
+    assert.equal(subscribed[1], 'friends'); assert.equal(subscribed[2], A); assert.equal(subscribed[3], OBJECT);
+    assert.deepEqual(subscribed[5], f.state);
     assert.deepEqual(f.registrations.get('friends').diff(f.state, f.state, { objectId: OBJECT }), []);
 });
 
@@ -230,7 +232,7 @@ test('committed mutation succeeds despite a reconciliation outage and session bl
     assert.equal((await rpc(f.friends, 'RemoveFriend', { targetId: wire.account(B) })).status, 0);
     assert.equal((await rpc(f.blocks, 'BlockPlayerForSession', { targetId: wire.account(B) })).status, 0);
     assert.equal(f.calls.filter(call => call[0] === 'block').length, 0);
-    assert.deepEqual(f.calls.find(call => call[0] === 'blockSession').slice(1), ['session', B]);
+    assert.deepEqual(f.calls.find(call => call[0] === 'blockForSession').slice(1), ['session', B]);
     assert.equal((await rpc(f.blocks, 'BlockPlayer', { targetId: wire.account(B) })).status, 0);
     assert.equal(f.calls.find(call => call[0] === 'block')[1].actorId, A);
     assert.equal((await rpc(f.blocks, 'BlockPlayer', { targetId: wire.account(B), role: 99 })).status, 0x1393);
@@ -251,21 +253,21 @@ test('block subscriptions and diffs preserve object IDs and never include profil
     assert.equal(decoded.data.player.accountId.low.toString(), B);
     assert.equal(Object.hasOwn(decoded.data.player, 'name'), false);
     await rpc(f.blocks, 'Unsubscribe', { objectId: OBJECT });
-    assert.deepEqual(f.calls.find(call => call[0] === 'unsubscribe').slice(2), ['blocks', A, OBJECT]);
+    assert.deepEqual(f.calls.find(call => call[0] === 'unsubscribe').slice(1), ['blocks', A, OBJECT]);
 });
 
 test('block subscriptions merge durable and session blocks, and unblocking does not clear another session', async () => {
     const f = setup();
     f.state.blocks = [{ accountId: B, battleTag: 'Durable#1234' }];
-    await f.runtime.blockSession(f.owner, B);
-    await f.runtime.blockSession(f.owner, C);
-    const other = { ...f.owner, sessionKey: 'other-license' };
-    await f.runtime.blockSession(other, C);
+    await f.session().blockForSession(B);
+    await f.session().blockForSession(C);
+    const other = f.session({ ...f.owner, sessionKey: 'other-license' });
+    await other.blockForSession(C);
     const subscribed = await rpc(f.blocks, 'Subscribe', { objectId: OBJECT });
     assert.deepEqual(subscribed.response.blockedPlayers.map(value => value.accountId.low.toString()), [B, C]);
     assert.equal((await rpc(f.blocks, 'UnblockPlayer', { targetId: wire.account(C) })).status, 0);
-    assert.deepEqual((await f.runtime.sessionBlocks(f.owner)).map(value => value.accountId), [B]);
-    assert.deepEqual((await f.runtime.sessionBlocks(other)).map(value => value.accountId), [C]);
+    assert.deepEqual((await f.session().sessionBlocks()).map(value => value.accountId), [B]);
+    assert.deepEqual((await other.sessionBlocks()).map(value => value.accountId), [C]);
 });
 
 test('typed reports resolve the full parent, bind reporter ownership, and preserve server-controlled report reasons', async () => {
@@ -320,13 +322,11 @@ test('encoded adapters integrate with graph receipts, Real ID consent, notes and
     const registry = new Map();
     const runtime = {
         graph: f.graph,
-        owner: async context => ({ accountId: context.identity.sessionKey, sessionKey: context.identity.sessionKey }),
-        operationId: context => createHash('sha256').update(JSON.stringify([
-            context.identity.sessionKey, context.header.methodId, context.operation
-        ])).digest('hex'),
-        register: (kind, hooks) => registry.set(kind, hooks),
-        subscribe: async () => ({}), unsubscribe: async () => {}, reconcile: async () => {},
-        sessionBlocks: async () => [], blockSession: async () => true, unblockSession: async () => false
+        session: async context => fakeSession({ accountId: context.identity.sessionKey, sessionKey: context.identity.sessionKey }, { context,
+            methods: { operationId: () => createHash('sha256').update(JSON.stringify([
+                context.identity.sessionKey, context.header.methodId, context.operation
+            ])).digest('hex') } }),
+        register: (kind, hooks) => registry.set(kind, hooks), reconcile: async () => {}
     };
     const models = { ...f.models, Account: f.Account, sequelize: f.sequelize };
     const deps = { runtime, models, logger: { error() {}, debug() {} } };

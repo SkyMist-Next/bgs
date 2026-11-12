@@ -5,6 +5,7 @@ const { test } = require('node:test');
 const { EventEmitter } = require('node:events');
 const { Op } = require('sequelize');
 const SocialRuntime = require('../social/runtime');
+const { SocialSession } = require('../social/session');
 
 const A = '9007199254740993', B = '9007199254740995', C = '9007199254740997';
 const G = '9007199254741001', G2 = '9007199254741003';
@@ -189,7 +190,7 @@ function fixture(t, extra = {}) {
         pendingOutbox: async () => { if (state.outboxError) { throw state.outboxError; } return []; }, acknowledgeOutbox: async () => {}
     };
     t.after(() => { runtime.stopping = true; clearTimeout(runtime.timer); });
-    const owner = () => runtime.owner({ identity: { connectionId: 'first', address: connection.address }, queueName: connectionRoute.queueName });
+    const owner = () => runtime.session({ identity: { connectionId: 'first', address: connection.address }, queueName: connectionRoute.queueName });
     const addSubscription = (route = connectionRoute, extra = {}) => {
         const row = { id: 'row-1', sessionKey: route.type === 'world' ? 'w:' + world.session_id + ':' + world.generation : 'c:first',
             gameAccountId: route.type === 'world' ? G : null,
@@ -335,17 +336,17 @@ test('social dependency failure preserves session ownership, subscriptions and r
 
 test('session blocks are idempotent, isolated to their owning license/session and survive worker recreation', async t => {
     const f = fixture(t); const owner = await f.owner();
-    assert.equal(await f.runtime.blockSession(owner, B), true);
-    assert.equal(await f.runtime.blockSession(owner, B), false);
+    assert.equal(await owner.blockForSession(B), true);
+    assert.equal(await owner.blockForSession(B), false);
     assert.equal(await f.runtime.sessionBlocked(owner.sessionKey, B), true);
     assert.equal(await f.runtime.sessionBlocked('c:second', B), false);
-    assert.deepEqual(await f.runtime.sessionBlocks(owner), [{ accountId: B, battleTag: 'Peer#1234' }]);
+    assert.deepEqual(await owner.sessionBlocks(), [{ accountId: B, battleTag: 'Peer#1234' }]);
     const replica = new SocialRuntime(f.dependencies);
     assert.equal(await replica.sessionBlocked(owner.sessionKey, B), true);
     assert.equal(f.state.tables.SocialSessionBlock.size, 1);
-    await assert.rejects(f.runtime.blockSession(owner, A), value => value === 0x1F42);
-    assert.equal(await f.runtime.unblockSession(owner, B), true);
-    assert.equal(await f.runtime.unblockSession(owner, B), false);
+    await assert.rejects(owner.blockForSession(A), value => value === 0x1F42);
+    assert.equal(await owner.unblockForSession(B), true);
+    assert.equal(await owner.unblockForSession(B), false);
     assert.equal(await f.runtime.sessionBlocked(owner.sessionKey, B), false);
 });
 
@@ -356,7 +357,7 @@ test('session block capacity serializes concurrent requests and cleanup deletes 
         f.state.tables.SocialSessionBlock.set(id, { id, accountId: A, sessionKey: owner.sessionKey,
             blockedAccountId: String(1000 + i), route: owner.route, createdAt: new Date() });
     }
-    const results = await Promise.allSettled([B, C].map(target => f.runtime.blockSession(owner, target)));
+    const results = await Promise.allSettled([B, C].map(target => owner.blockForSession(target)));
     assert.equal(results.filter(value => value.status === 'fulfilled').length, 1);
     assert.equal(results.find(value => value.status === 'rejected').reason, 0x1F45);
     await f.runtime.cleanupSessionBlocks(20);
@@ -429,7 +430,7 @@ test('broker failure between frames stops the batch and does not change world-se
 
 test('session block cleanup preserves valid blocks through dependency failure and ignores forged session owners', async t => {
     const f = fixture(t), owner = await f.owner();
-    await f.runtime.blockSession(owner, B);
+    await owner.blockForSession(B);
     f.state.accountError = new Error('SQL unavailable');
     await assert.rejects(f.runtime.cleanupSessionBlocks(), /SQL unavailable/);
     assert.equal(f.state.tables.SocialSessionBlock.size, 1);
@@ -495,7 +496,7 @@ test('world refresh migrates only the matching parent/license/session and resets
     }
     assert.deepEqual(f.state.tables.SocialSubscription.get('direct'), direct);
     const context = {}; f.runtime.worldContext(context, owner, 'queue-new');
-    const principal = await f.runtime.owner(context);
+    const principal = await f.runtime.session(context);
     assert.equal(principal.routeEpoch, '2'); assert.equal(principal.route.owner.routeEpoch, '2');
     assert.equal((await f.runtime.current(principal.route, A)).routeEpoch, '2');
     assert.equal(await f.runtime.notify(f.addSubscription(f.worldRoute, { id: 'stale-copy' }), [frame('old')]), false);
@@ -513,7 +514,7 @@ test('late world Subscribe, Unsubscribe and afterReply cannot roll back or ready
     const f = fixture(t), context = {};
     f.runtime.register('friends', { snapshot: async () => ({}), diff: () => [] });
     f.runtime.worldContext(context, f.worldRoute.owner, f.worldRoute.queueName);
-    const old = await f.runtime.owner(context);
+    const old = await f.runtime.session(context);
     const row = await f.runtime.subscribe(context, old, 'friends', A, OBJECT, {}, { friends: [] });
     await f.runtime.refreshWorldRoute({ ...f.state.world, routeEpoch: '2' }, 'queue-new');
     await context.afterReply();
@@ -523,7 +524,7 @@ test('late world Subscribe, Unsubscribe and afterReply cannot roll back or ready
     assert.equal(f.state.tables.SocialSubscription.get(row.id).route.queueName, 'queue-new');
     const nextContext = {};
     f.runtime.worldContext(nextContext, { ...f.state.world, routeEpoch: '2' }, 'queue-new');
-    const next = await f.runtime.subscribe(nextContext, await f.runtime.owner(nextContext), 'friends', A, OBJECT);
+    const next = await f.runtime.subscribe(nextContext, await f.runtime.session(nextContext), 'friends', A, OBJECT);
     await nextContext.afterReply();
     assert.equal(f.state.tables.SocialSubscription.get(next.id).ready, true);
     assert.equal(f.state.tables.SocialSubscription.size, 1);
@@ -650,7 +651,7 @@ test('stale world generation cleanup removes only the retired fence and subscrip
     const context = {};
     f.runtime.worldContext(context, nextOwner, 'next-queue');
     f.runtime.register('test', { snapshot: async () => ({ value: 'current' }), diff: () => [] });
-    const row = await f.runtime.subscribe(context, await f.runtime.owner(context), 'test', A, OBJECT);
+    const row = await f.runtime.subscribe(context, await f.runtime.session(context), 'test', A, OBJECT);
     await context.afterReply();
     await f.runtime.pulse();
     assert.equal(f.state.tables.SocialWorldRoute.size, 1);
@@ -701,4 +702,20 @@ test('each reconciliation pulse runs every registered projector cleanup with a b
     f.runtime.register('friends', { snapshot: async () => ({}), diff: () => [] });
     await f.runtime.pulse();
     assert.deepEqual(cleaned, [20]);
+});
+
+test('a social session carries its request; sessions rebuilt for stored subscriptions cannot act for an RPC', async t => {
+    const f = fixture(t), live = await f.owner();
+    assert.ok(live instanceof SocialSession);
+    assert.equal(live.sessionKey, 'c:first');
+    assert.equal(JSON.stringify(live).includes('runtime'), false);
+    const stored = await f.runtime.current(f.connectionRoute, A);
+    assert.ok(stored instanceof SocialSession);
+    assert.equal(stored.sessionKey, live.sessionKey);
+    assert.throws(() => stored.operationId(), value => value === 0xA);
+    await assert.rejects(stored.subscribe('test', A, OBJECT), value => value === 0xA);
+    await assert.rejects(live.selectedGame(), value => value === 0xA);
+    assert.equal((await live.selectGame(G)).gameAccountId, G);
+    assert.equal((await live.selectedGame()).id, G);
+    await assert.rejects(live.selectGame(G2), value => value === 0xA);
 });

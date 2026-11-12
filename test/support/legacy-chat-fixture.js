@@ -6,6 +6,7 @@ const { Sequelize, DataTypes: T, Op, Transaction } = require('sequelize');
 const define = require('../../models/sociallegacy');
 const defineSubscriptions = require('../../models/socialruntime');
 const { LegacyChat, entity } = require('../../social/legacy-chat');
+const { fakeSession } = require('./social-session');
 
 // Controlled persistence/Redis/transport substitutes. These tests exercise the
 // actual protobufs, models, policy and receipt logic, not InnoDB or live AMQP.
@@ -114,25 +115,29 @@ function fixture() {
     const runtime = {
         models, projectors: new Map(), frames, currentFailure: false, notificationFailure: false,
         register(kind, projector) { this.projectors.set(kind, projector); },
-        async owner(context) { return context.owner; },
-        operationId(context) { return createHash('sha256').update(context.owner.sessionKey + ':' + context.header.token).digest('hex'); },
+        // The caller's social session over its stored connection owner.
+        async session(context) {
+            const owner = context.owner;
+            return fakeSession(owner, { context, methods: session => ({
+                operationId: () => createHash('sha256').update(owner.sessionKey + ':' + context.header.token).digest('hex'),
+                async selectGame(gameId) {
+                    const actual = sessions.get(owner.route.connectionId);
+                    if (!actual || actual.gameAccountId && actual.gameAccountId !== gameId) { throw 0xA; }
+                    actual.gameAccountId = owner.gameAccountId = session.gameAccountId = gameId;
+                    return session;
+                },
+                unsubscribe: (kind, target) => models.SocialSubscription.destroy({ where: { sessionKey: owner.sessionKey, kind, target } }),
+                subscribe: (kind, target, objectId, filter, snapshot) => models.SocialSubscription.create({ id: randomUUID(),
+                    accountId: owner.accountId, gameAccountId: session.gameAccountId, sessionKey: owner.sessionKey, kind, target, objectId,
+                    filter, snapshot, route: owner.route, ready: true, expiresAt: new Date(now + 300000) })
+            }) });
+        },
         async current(route, accountId) {
             if (this.currentFailure) { throw new Error('Redis temporarily unavailable'); }
             const owner = sessions.get(route.connectionId);
             return owner?.accountId === accountId ? owner : null;
         },
-        async unsubscribe(owner, kind, target) { await models.SocialSubscription.destroy({ where: { sessionKey: owner.sessionKey, kind, target } }); },
-        async selectGame(owner, gameId) {
-            const actual = sessions.get(owner.route.connectionId);
-            if (!actual || actual.gameAccountId && actual.gameAccountId !== gameId) { throw 0xA; }
-            actual.gameAccountId = gameId; owner.gameAccountId = gameId;
-            return owner;
-        },
         async sessionBlocked(sessionKey, otherAccountId) { return sessionBlocks.has(sessionKey + ':' + otherAccountId); },
-        async subscribe(context, owner, kind, target, objectId, filter, snapshot) {
-            return models.SocialSubscription.create({ id: randomUUID(), accountId: owner.accountId, gameAccountId: owner.gameAccountId,
-                sessionKey: owner.sessionKey, kind, target, objectId, filter, snapshot, route: owner.route, ready: true, expiresAt: new Date(now + 300000) });
-        },
         async recipients(accountId, kind) { return models.SocialSubscription.findAll({ where: { accountId, kind, ready: true }, raw: true }); },
         async notify(row, values) {
             if (this.notificationFailure) { throw new Error('Publication confirmation lost'); }
