@@ -34,6 +34,8 @@ class SocialSession {
     blockForSession(accountId) { return this.#runtime.blockSession(this, accountId); }
     unblockForSession(accountId) { return this.#runtime.unblockSession(this, accountId); }
     sessionBlocks() { return this.#runtime.sessionBlocks(this); }
+    // Delivers one whisper live to the target's sessions; false when it reached no one.
+    whisper(targetAccountId, buildFrame) { return this.#runtime.whisper(this, targetAccountId, buildFrame); }
     // The idempotency key of the current RPC within this session.
     operationId() { return this.#runtime.operationId(this.#request()); }
 

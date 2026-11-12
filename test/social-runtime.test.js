@@ -6,6 +6,7 @@ const { EventEmitter } = require('node:events');
 const { Op } = require('sequelize');
 const SocialRuntime = require('../social/runtime');
 const { SocialSession } = require('../social/session');
+const { SocialError } = require('../social/errors');
 
 const A = '9007199254740993', B = '9007199254740995', C = '9007199254740997';
 const G = '9007199254741001', G2 = '9007199254741003';
@@ -718,4 +719,68 @@ test('a social session carries its request; sessions rebuilt for stored subscrip
     assert.equal((await live.selectGame(G)).gameAccountId, G);
     assert.equal((await live.selectedGame()).id, G);
     await assert.rejects(live.selectGame(G2), value => value === 0xA);
+});
+
+// Whisper fan-out from a live sender (B, connection "peer") to every live session of A.
+async function whisperFixture(t) {
+    const f = fixture(t), access = [];
+    f.state.accounts.set(B, { ...f.state.account, id: B, battleTag: 'Peer#1234' });
+    f.state.redis.set('/aurora/connections/peer', JSON.stringify({ ...f.state.connection, accountId: B }));
+    f.runtime.graph.assertAccess = async (...args) => { access.push(args); };
+    const sender = await f.runtime.session({ identity: { connectionId: 'peer', address: f.state.connection.address }, queueName: 'peer-queue' });
+    let built = 0;
+    const build = async () => { built++; return frame('whisper'); };
+    const friends = (route, id, extra = {}) => f.addSubscription(route, { id, kind: 'friends', ...extra });
+    return { ...f, access, sender, build, friends, built: () => built };
+}
+
+test('a whisper reaches each live session of the target once, across connection and world routes', async t => {
+    const f = await whisperFixture(t);
+    f.friends(f.connectionRoute, 'friends-1');
+    f.friends(f.connectionRoute, 'friends-2', { objectId: '2', route: JSON.stringify(f.connectionRoute) });
+    f.friends(f.worldRoute, 'friends-3', { sessionKey: 'w:' + f.state.world.session_id + ':' + f.state.world.generation, gameAccountId: G });
+    f.friends({ ...f.connectionRoute, connectionId: 'expired' }, 'friends-4', { sessionKey: 'c:expired' });
+    assert.equal(await f.sender.whisper(A, f.build), true);
+    assert.equal(f.built(), 1);
+    assert.deepEqual(f.state.sent.map(value => [value.kind, value.queue]), [['connection', 'connection-queue'], ['world', 'world-queue']]);
+    assert.deepEqual(f.access, [[B, A, 'whisper']]);
+});
+
+test('either side\'s session block, or graph policy, makes a whisper undeliverable without building it', async t => {
+    const f = await whisperFixture(t);
+    f.friends(f.connectionRoute, 'friends-1');
+    f.friends(f.worldRoute, 'friends-2', { sessionKey: 'w:' + f.state.world.session_id + ':' + f.state.world.generation, gameAccountId: G });
+    assert.equal(await f.sender.blockForSession(A), true);
+    assert.equal(await f.sender.whisper(A, f.build), false);
+    assert.equal(await f.sender.unblockForSession(A), true);
+    const connection = await f.owner(), world = await f.runtime.current(f.worldRoute, A);
+    await connection.blockForSession(B);
+    assert.equal(await f.sender.whisper(A, f.build), true);
+    assert.deepEqual(f.state.sent.map(value => value.kind), ['world']); // Only the blocking session is filtered.
+    await world.blockForSession(B);
+    assert.equal(await f.sender.whisper(A, f.build), false);
+    assert.equal(f.built(), 1);
+    await connection.unblockForSession(B); await world.unblockForSession(B);
+    f.runtime.graph.assertAccess = async () => { throw new SocialError('NOT_FRIENDS'); };
+    assert.equal(await f.sender.whisper(A, f.build), false);
+    const outage = new Error('Graph unavailable');
+    f.runtime.graph.assertAccess = async () => { throw outage; };
+    await assert.rejects(f.sender.whisper(A, f.build), error => error === outage);
+    assert.equal(f.built(), 1);
+});
+
+test('offline targets are undeliverable and a lost publication stops fan-out without retry', async t => {
+    const f = await whisperFixture(t);
+    assert.equal(await f.sender.whisper(A, f.build), false);
+    f.friends({ ...f.connectionRoute, connectionId: 'expired' }, 'friends-0', { sessionKey: 'c:expired' });
+    assert.equal(await f.sender.whisper(A, f.build), false);
+    assert.equal(f.built(), 0);
+    f.friends(f.connectionRoute, 'friends-1');
+    f.friends(f.worldRoute, 'friends-2', { sessionKey: 'w:' + f.state.world.session_id + ':' + f.state.world.generation, gameAccountId: G });
+    f.state.publicationError = new Error('Confirmation lost');
+    await assert.rejects(f.sender.whisper(A, f.build), /Confirmation lost/);
+    assert.equal(f.state.sent.length, 1);
+    f.state.publicationError = null;
+    assert.equal(await f.sender.whisper(A, f.build), true);
+    assert.equal(f.state.sent.length, 3);
 });

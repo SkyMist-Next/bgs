@@ -7,8 +7,6 @@ const { WatchError } = require('redis');
 const NotificationService = require('../services/notification');
 const { watched } = require('../utils/redis-transaction');
 const wire = require('../social/wire');
-const { SocialError } = require('../social/errors');
-const { fixture } = require('./support/social-graph-fixture');
 const { fakeSession } = require('./support/social-session');
 const { ClientSessions } = require('../utils/client-sessions');
 
@@ -74,48 +72,32 @@ function setup(store = redis()) {
     const games = new Map([[GAME, A], [OTHER_GAME, A], [FOREIGN_GAME, B]].map(([id, accountId]) =>
         [id, { id, accountId, entityId: entity(id), program: 'WoW', expansion: 6, region: 1 }]));
     const profile = { battleTag: 'Sender#1234', givenName: 'Private', surname: 'Name', realIdEnabled: true };
-    const attempts = [], deliveries = [], access = [], blocks = [], errors = [];
-    const blocked = new Set(), live = new Map();
-    const state = { rows: [], notify: null };
+    const attempts = [], deliveries = [], errors = [];
+    // Fan-out policy lives behind session.whisper (see social-runtime.test.js). By
+    // default every whisper reaches one live session; state.whisper replaces that.
+    const state = { whisper: null };
     const models = { GameAccount: { findByPk: async id => games.get(id) || null }, Account: { findByPk: async () => profile } };
     const runtime = {
         store,
         session: async context => {
             if (context.unauthenticated) { throw 0xA; }
             // The sender's license is judged exactly as the client session judges it.
-            return fakeSession(owner, { context, methods: session => ({ selectedGame: async () => {
-                if (!session.gameAccountId) { throw 0xA; }
-                return new ClientSessions(store, models).ownedGame(session, session.gameAccountId);
-            } }) });
-        },
-        graph: { assertAccess: async (...args) => access.push(args) },
-        sessionBlocked: async (sessionKey, parent) => { blocks.push([sessionKey, parent]); return blocked.has(sessionKey + ':' + parent); },
-        recipients: async (parent, kind) => { assert.equal(parent, B); assert.equal(kind, 'friends'); return state.rows; },
-        current: async (route, parent) => {
-            const peer = live.get(route.type === 'connection' ? 'c:' + route.connectionId : 'w:' + route.owner.session_id + ':' + route.owner.generation);
-            return peer?.accountId === parent ? peer : null;
-        },
-        notify: async (row, frames) => {
-            attempts.push({ row, frames });
-            if (state.notify) { return state.notify(row, frames); }
-            const route = typeof row.route === 'string' ? JSON.parse(row.route) : row.route;
-            if (!await runtime.current(route, String(row.accountId))) { return false; }
-            deliveries.push({ row, frames }); return true;
+            return fakeSession(owner, { context, methods: session => ({
+                selectedGame: async () => {
+                    if (!session.gameAccountId) { throw 0xA; }
+                    return new ClientSessions(store, models).ownedGame(session, session.gameAccountId);
+                },
+                whisper: async (targetId, buildFrame) => {
+                    attempts.push(targetId);
+                    if (state.whisper) { return state.whisper(targetId, buildFrame); }
+                    deliveries.push({ frames: [await buildFrame()] });
+                    return true;
+                }
+            }) });
         }
     };
-    function recipient(connectionId, options = {}) {
-        const route = options.world ? { type: 'world', queueName: 'world-q', owner: { account_id: B,
-            game_account_id: FOREIGN_GAME, session_id: connectionId, generation: '9007199254741011' } } :
-            { type: 'connection', connectionId, queueName: 'q:' + connectionId, address: '127.0.0.1' };
-        const sessionKey = options.world ? 'w:' + connectionId + ':' + route.owner.generation : 'c:' + connectionId;
-        live.set(sessionKey, { accountId: B, sessionKey, route });
-        const row = { id: String(state.rows.length), accountId: B, sessionKey, objectId: options.objectId || '18446744073709551615',
-            route: options.json ? JSON.stringify(route) : route };
-        state.rows.push(row); return row;
-    }
-    recipient('receiver');
     const service = new NotificationService({ models, runtime, logger: { error: error => errors.push(error) } });
-    return { owner, games, profile, models, runtime, service, store, state, attempts, deliveries, access, blocks, blocked, live, errors, recipient };
+    return { owner, games, profile, models, runtime, service, store, state, attempts, deliveries, errors };
 }
 
 async function rpc(f, request = message(), extras = {}) {
@@ -150,8 +132,7 @@ test('26972 NotificationSend and global listener preserve full entities and emit
     assert.equal(value.attribute[0].name, 'whisper'); assert.equal(value.attribute[0].value.stringValue, 'hello');
     for (const name of ['targetBattleTag', 'forwardingIdentity', 'peer']) { assert.equal(Object.hasOwn(value, name), false); }
     assert.equal(JSON.stringify(value).includes('Private'), false);
-    assert.deepEqual(f.access, [[A, B, 'whisper']]);
-    assert.deepEqual(f.blocks, [['c:sender', B], ['c:receiver', A]]);
+    assert.deepEqual(f.attempts, [B]);
 });
 
 test('authentication and bound selection are required, including when sender fields are omitted', async () => {
@@ -220,61 +201,6 @@ test('whispers enforce a 1020 UTF-8 byte ceiling, preserve Unicode and reject NU
     }
 });
 
-test('accepted friendship is required and either parent durable block prevents delivery', async t => {
-    const graph = fixture(); t.after(() => graph.sequelize.close());
-    for (const id of [A, B]) { await graph.Account.create({ id, battleTag: 'Player#1234' }); }
-    const f = setup(); f.runtime.graph = graph.graph;
-    assert.equal(await rpc(f), 0x1B58);
-    const { invitationId } = await graph.graph.invite({ actorId: A, targetId: B, kind: 'battle_tag', operationId: 'invite' });
-    assert.equal(await rpc(f), 0x1B58);
-    await graph.graph.accept({ actorId: B, targetId: A, invitationId, operationId: 'accept' });
-    assert.equal(await rpc(f), 0);
-    await graph.graph.block({ actorId: A, targetId: B, operationId: 'block-a' });
-    assert.equal(await rpc(f), 0x1B58);
-    await graph.graph.unblock({ actorId: A, targetId: B, operationId: 'unblock-a' });
-    await graph.graph.block({ actorId: B, targetId: A, operationId: 'block-b' });
-    assert.equal(await rpc(f), 0x1B58);
-    assert.equal(f.deliveries.length, 1);
-});
-
-test('sender session blocks deny, recipient session blocks filter only that connection or world session', async () => {
-    const f = setup(); f.recipient('other'); f.recipient('world', { world: true });
-    f.blocked.add('c:sender:' + B);
-    assert.equal(await rpc(f), 0x1B58); assert.equal(f.attempts.length, 0);
-    f.blocked.clear(); f.blocked.add('c:receiver:' + A); f.blocked.add('w:world:9007199254741011:' + A);
-    assert.equal(await rpc(f), 0);
-    assert.deepEqual(f.deliveries.map(value => value.row.sessionKey), ['c:other']);
-    f.blocked.add('c:other:' + A);
-    assert.equal(await rpc(f), 0x1B58); assert.equal(f.attempts.length, 1);
-    f.blocked.delete('c:receiver:' + A);
-    assert.equal(await rpc(f), 0); assert.equal(f.deliveries.at(-1).row.sessionKey, 'c:receiver');
-});
-
-test('duplicate Friends objects fan out once per current route, retaining independent connection and world recipients', async () => {
-    const f = setup();
-    f.recipient('receiver', { json: true, objectId: '2' });
-    f.recipient('other', { objectId: '2' });
-    f.recipient('world', { world: true, objectId: '3' }); f.recipient('world', { world: true, json: true, objectId: '4' });
-    f.recipient('stale'); f.live.delete('c:stale');
-    f.state.rows.push({ ...f.state.rows[0], accountId: C });
-    assert.equal(await rpc(f), 0);
-    assert.deepEqual(f.deliveries.map(value => value.row.sessionKey), ['c:receiver', 'c:other', 'w:world:9007199254741011']);
-    assert.ok(f.deliveries.every(value => value.frames.length === 1 && value.frames[0].objectId === '0'));
-});
-
-test('offline targets and expired routes are undeliverable, never queued for a later subscription', async () => {
-    for (const expire of [f => { f.state.rows = []; }, f => f.live.clear(),
-        f => { f.state.notify = async () => false; }]) {
-        const f = setup(); expire(f);
-        assert.equal(await rpc(f, message('never replay me')), 0x1B58);
-        assert.equal(f.deliveries.length, 0);
-        f.state.notify = null; f.live.clear(); f.recipient('reconnected');
-        assert.equal(await rpc(f, message('new live text')), 0);
-        assert.deepEqual(f.deliveries.map(value => Notification.decode(value.frames[0].payload).attribute[0].value.stringValue), ['new live text']);
-        assert.equal(JSON.stringify(f.store.writes).includes('replay'), false);
-    }
-});
-
 test('10 sends per rolling 10 seconds are shared by workers, licenses, routes and targets of an authenticated parent', async () => {
     const store = redis(), first = setup(store), second = setup(store);
     second.owner.gameAccountId = OTHER_GAME; second.owner.sessionKey = 'w:second:4';
@@ -319,32 +245,19 @@ test('an uncertain Redis transaction is not retried or followed by delivery; met
     assert.deepEqual(JSON.parse(f.store.writes[0][2]), [f.store.now]);
 });
 
-test('dependency and session-policy outages fail closed and never become successful synchronous sends', async () => {
+test('dependency outages fail closed and undeliverable whispers report 0x1B58 without a synchronous success', async () => {
     const fail = async () => { throw new Error('Dependency unavailable'); };
-    for (const outage of [f => { f.store.unavailable = true; }, f => { f.runtime.graph.assertAccess = fail; },
-        f => { f.runtime.recipients = fail; }, f => { f.runtime.current = fail; }, f => { f.runtime.sessionBlocked = fail; },
-        f => { delete f.runtime.sessionBlocked; }, f => { f.models.Account.findByPk = fail; }]) {
+    for (const outage of [f => { f.store.unavailable = true; }, f => { f.models.Account.findByPk = fail; },
+        f => { f.state.whisper = fail; }, f => { f.state.whisper = async (target, build) => { await build(); throw new Error('Confirmation lost'); }; }]) {
         const f = setup(); outage(f);
-        assert.equal(await rpc(f), 1); assert.equal(f.attempts.length, 0);
+        assert.equal(await rpc(f), 1); assert.equal(f.deliveries.length, 0);
     }
-    const f = setup(); f.runtime.graph.assertAccess = async () => { throw new SocialError('BLOCKED'); };
-    assert.equal(await rpc(f), 0x1B58); assert.equal(f.attempts.length, 0);
-});
-
-test('partial or uncertain publisher failure stops fanout without retry, history or background recovery', async () => {
-    const f = setup(); f.recipient('second'); f.recipient('third');
-    f.state.notify = async (row, frames) => {
-        f.deliveries.push({ row, frames }); // Broker may have accepted before confirmation was lost.
-        if (row.sessionKey === 'c:second') { throw new Error('Confirmation lost'); }
-        return true;
-    };
-    assert.equal(await rpc(f, message('uncertain')), 1);
-    assert.deepEqual(f.attempts.map(value => value.row.sessionKey), ['c:receiver', 'c:second']);
-    f.state.notify = null;
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(f.attempts.length, 2);
-    assert.equal(await rpc(f, message('next')), 0);
-    assert.deepEqual(f.deliveries.map(value => Notification.decode(value.frames[0].payload).attribute[0].value.stringValue),
-        ['uncertain', 'uncertain', 'next', 'next', 'next']);
-    assert.equal(JSON.stringify(f.store.writes).includes('uncertain'), false);
+    const f = setup(); f.state.whisper = async () => false;
+    assert.equal(await rpc(f, message('never replay me')), 0x1B58);
+    f.state.whisper = null;
+    assert.equal(await rpc(f, message('new live text')), 0);
+    assert.deepEqual(f.deliveries.map(value => Notification.decode(value.frames[0].payload).attribute[0].value.stringValue), ['new live text']);
+    assert.equal(JSON.stringify(f.store.writes).includes('replay'), false);
+    const missing = setup(); missing.models.Account.findByPk = async () => null;
+    assert.equal(await rpc(missing), 0xA);
 });
