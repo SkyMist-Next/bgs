@@ -4,6 +4,7 @@ const { Op, QueryTypes } = require('sequelize');
 const Service = require('./service');
 const wire = require('../social/wire');
 const friends = require('../social/friends-wire');
+const { jsonColumn } = require('../utils/json-column');
 
 class FriendsService extends Service {
     constructor({ logger, models, runtime }) {
@@ -98,7 +99,7 @@ class FriendsService extends Service {
         // Acceptance/removal deletes the pending row. Recover the peer from this actor's durable receipt
         // so a transport retry can reach Graph's request-hash check and return the original result.
         const receipt = await this.models.SocialMutation.findOne({ where: { accountId: owner.accountId, operationId }, raw: true });
-        const result = typeof receipt?.result === 'string' ? JSON.parse(receipt.result) : receipt?.result;
+        const result = jsonColumn(receipt?.result);
         if (result?.invitationId === invitationId && Object.hasOwn(result.revisions || {}, owner.accountId)) {
             const peers = Object.keys(result.revisions).filter(id => id !== owner.accountId);
             if (peers.length === 1) { return { targetId: wire.id(peers[0]), kind: result.kind }; }

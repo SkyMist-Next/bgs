@@ -1,5 +1,6 @@
 'use strict';
 
+const { jsonColumn: json } = require('../utils/json-column');
 const { createHash } = require('node:crypto');
 const { Op, Transaction, DataTypes } = require('sequelize');
 const defineModels = require('../models/socialgraph');
@@ -40,7 +41,6 @@ function friendshipKind(value) {
     if (value !== 'real_id' && value !== 'battle_tag') { fail('INVALID_KIND'); }
     return value;
 }
-function json(value) { return typeof value === 'string' ? JSON.parse(value) : value; }
 function optedIn(profile) { return profile.realIdEnabled === true || profile.realIdEnabled === 1; }
 function realNames(viewer, subject, kind) { return kind === 'real_id' && optedIn(viewer) && optedIn(subject); }
 function profile(viewer, subject, kind = null) {

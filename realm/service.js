@@ -1,11 +1,11 @@
 'use strict';
+const { jsonColumn: json } = require('../utils/json-column');
 const { Op, fn, col } = require('sequelize');
 const { Failure, fingerprint, canonical, MAX_RESERVATION_BYTES } = require('./contract');
 const { blocked, privilege, checkIP } = require('../utils/admin-state');
 const { readLease } = require('./sessions');
 const { requireProof, wireProof, metadata } = require('../utils/authenticator');
 const { licenseIndex } = require('../utils/wow-license');
-const json = value => typeof value === 'string' ? JSON.parse(value) : value;
 
 class RealmService {
     constructor({ models, store, realmDirectory, clock = Date.now }) {
