@@ -5,6 +5,7 @@ const ServiceReceiver = require('../messaging/receiver');
 const RealmReceiver = require('../realm/receiver');
 const RealmDirectory = require('../utils/realm-directory');
 const SocialRuntime = require('../social/runtime');
+const { LegacyChat } = require('../social/legacy-chat');
 const SocialRealm = require('../social/realm');
 const WorldPresence = require('../social/world-presence');
 const { hash } = require('../social/wire');
@@ -23,11 +24,10 @@ class SocialServer extends BaseServer {
         realmConnection.on('close', () => this.stop(new Error('Social realm broker closed')));
         realmConnection.on('blocked', () => { this.realmBlocked = true; });
         realmConnection.on('unblocked', () => { this.realmBlocked = false; });
-        const runtime = this.runtime = new SocialRuntime(dependencies);
-        runtime.onChannelFailure = error => this.stop(error);
         const worldPresence = new WorldPresence(dependencies.store, dependencies.models);
-        runtime.worldPresence = worldPresence;
-        const options = { ...dependencies, runtime, worldPresence, realmDirectory };
+        const runtime = this.runtime = new SocialRuntime({ ...dependencies, worldPresence, onChannelFailure: error => this.stop(error) });
+        const legacyChat = new LegacyChat(runtime, { worldPresence });
+        const options = { ...dependencies, runtime, worldPresence, realmDirectory, legacyChat };
         const services = new Map();
         for (const name of ['friends', 'presence', 'notification', 'user_manager', 'report', 'legacy_chat']) {
             const Service = require('../services/' + name);

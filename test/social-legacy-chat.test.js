@@ -221,7 +221,7 @@ test('social worker outage preserves SQL membership; expiry/logout and bans end 
     await assert.rejects(f.chat.cleanup(), /temporarily unavailable/);
     assert.equal(await f.models.SocialLegacyMember.count({ where: {} }), 3);
     f.runtime.currentFailure = false;
-    const restarted = new (require('../social/legacy-chat').LegacyChat)(f.runtime);
+    const restarted = new (require('../social/legacy-chat').LegacyChat)(f.runtime, { worldPresence: f.chat.worldPresence });
     assert.equal((await restarted.snapshot(f.a.owner, GA, '1')).groups.length, 1);
     f.sessions.delete(f.c.owner.connectionId);
     await restarted.cleanup();
@@ -265,7 +265,7 @@ test('uncertain delivery is never automatically resent, including duplicate RPCs
 
 test('service adapter preserves custom errors and marks this service unavailable to stock world routing', async t => {
     const f = await setup(t);
-    const service = new Service({ logger: { error() {}, debug() {} }, runtime: f.runtime });
+    const service = new Service({ logger: { error() {}, debug() {} }, legacyChat: f.chat });
     assert.equal(service.legacyOnly, true);
     const type = service.rootNamespace.lookupType(NAMESPACE + 'LegacySubscribeRequest');
     const request = type.encode(type.fromObject({ version: 1, gameAccountId: entity(f.a.game), objectId: '9' })).finish();

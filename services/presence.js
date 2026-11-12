@@ -14,7 +14,6 @@ class PresenceService extends Service {
     constructor(dependencies) {
         super('PresenceService', 'proto/bgs/low/pb/client/presence_service.proto', dependencies);
         this.runtime = dependencies.runtime; this.models = dependencies.models; this.worldPresence = dependencies.worldPresence;
-        this.runtime.presence = this;
         this.runtime.register('presence', { snapshot: (owner, row) => this.project(owner, row), diff: presence.diff });
         // Ownership rows bind the selected license to the authenticated connection. They produce no events.
         this.runtime.register('presence-owner', { snapshot: async () => ({}), diff: () => [] });

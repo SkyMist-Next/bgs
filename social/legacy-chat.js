@@ -63,13 +63,13 @@ function frame(methodName, objectId, data) {
 class LegacyChat {
     constructor(runtime, { now = () => new Date(), uuid = randomUUID, worldPresence } = {}) {
         this.runtime = runtime; this.models = runtime.models; this.now = now; this.uuid = uuid;
-        this.worldPresence = worldPresence || runtime.worldPresence || new WorldPresence(runtime.store);
+        this.worldPresence = worldPresence || new WorldPresence(runtime.store, runtime.models);
         this.cursor = '0';
         runtime.register('legacy', {
             snapshot: (owner, row) => this.snapshot(owner, row.target, json(row.filter).generation, counter(row.objectId)),
-            diff: (before, after, row) => this.diff(before, after, row)
+            diff: (before, after, row) => this.diff(before, after, row),
+            cleanup: limit => this.cleanup(limit)
         });
-        runtime.legacyChat = this;
     }
 
     async _game(gameId, transaction, requireAvailable = true) {

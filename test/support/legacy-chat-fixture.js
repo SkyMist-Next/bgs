@@ -110,9 +110,9 @@ function fixture() {
         try { const result = await work(transaction); tables = transaction.tables; return result; }
         finally { activeTransaction = null; done(); }
     };
+    const worldPresence = { async get(gameId) { return characters.get(gameId) || null; } };
     const runtime = {
         models, projectors: new Map(), frames, currentFailure: false, notificationFailure: false,
-        worldPresence: { async get(gameId) { return characters.get(gameId) || null; } },
         register(kind, projector) { this.projectors.set(kind, projector); },
         async owner(context) { return context.owner; },
         operationId(context) { return createHash('sha256').update(context.owner.sessionKey + ':' + context.header.token).digest('hex'); },
@@ -157,7 +157,7 @@ function fixture() {
             });
         } }
     };
-    const chat = new LegacyChat(runtime, { now: () => new Date(now) });
+    const chat = new LegacyChat(runtime, { now: () => new Date(now), worldPresence });
     return {
         models, sequelize, runtime, chat, locks, policyReads, sessions, sessionBlocks, redis, frames, characters,
         tables: () => tables,
