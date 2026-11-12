@@ -5,6 +5,7 @@ const Service = require('./service');
 const wire = require('../social/wire');
 const friends = require('../social/friends-wire');
 const { jsonColumn } = require('../utils/json-column');
+const { registerSocialHandlers } = require('../social/errors');
 
 class FriendsService extends Service {
     constructor({ logger, models, runtime }) {
@@ -15,13 +16,8 @@ class FriendsService extends Service {
         runtime.register('friends', {
             snapshot: async owner => this.graph.snapshot(owner.accountId), diff: friends.friendsDiff
         });
-        for (const name of ['Subscribe', 'Unsubscribe', 'SendInvitation', 'AcceptInvitation', 'RevokeInvitation',
-            'DeclineInvitation', 'IgnoreInvitation', 'RemoveFriend', 'UpdateFriendState', 'GetFriendList', 'ViewFriends', 'CreateFriendship']) {
-            this.registerHandler(name, async context => {
-                try { return await this[name](context); }
-                catch (error) { throw friends.status(error); }
-            });
-        }
+        registerSocialHandlers(this, ['Subscribe', 'Unsubscribe', 'SendInvitation', 'AcceptInvitation', 'RevokeInvitation',
+            'DeclineInvitation', 'IgnoreInvitation', 'RemoveFriend', 'UpdateFriendState', 'GetFriendList', 'ViewFriends', 'CreateFriendship']);
     }
 
     async Subscribe(context) {

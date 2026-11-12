@@ -143,23 +143,6 @@ async function ownerFor(runtime, models, context) {
     return owner;
 }
 
-// Values are taken from legion-core/src/server/proto/BattlenetRpcErrorCodes.h.
-// Ambiguous cap errors use ERROR_SERVER_BUSY instead of guessing inviter/invitee-specific statuses.
-function status(error, service = 'friends') {
-    if (Number.isInteger(error)) { return error; }
-    const common = {
-        ACCOUNT_NOT_FOUND: 0x14, SELF_TARGET: service === 'blocks' ? 0x1F42 : 0x7,
-        BLOCKED: 0x1391, NOT_FRIENDS: 0x138C, REAL_ID_DISABLED: 0x1394,
-        INVITATION_NOT_FOUND: 0x138E, INVITATION_CONFLICT: 0x138E,
-        INVITATION_NOT_RECIPIENT: 0xBC1, INVITATION_NOT_OWNER: 0xBC1,
-        INVALID_NOTE: 0x1395, BLOCK_LIMIT: 0x1F45, REPORT_LIMIT: 0xAFD0, INVALID_REPORT: 0xAFCB,
-        FRIEND_LIMIT: 0x25, INVITATION_LIMIT: 0x25, OUTBOX_FULL: 0x25,
-        INVALID_KIND: 0x1393, OPERATION_CONFLICT: 0x7,
-        INVALID_ID: 0x7, INVALID_MESSAGE: 0x7, INVALID_OPERATION_ID: 0x7, INVALID_LIMIT: 0x7
-    };
-    return common[error?.code] || 0x1;
-}
-
 function reconcile(runtime, result, context) {
     deferReconcile(runtime, Object.keys(result.revisions), context);
 }
@@ -175,4 +158,4 @@ function deferReconcile(runtime, accountIds, context) {
 }
 
 module.exports = { PARAMS, INVITATION, ROLES, role, kind, storedId, friend, received, sent, blocked, subscribe,
-    friendsDiff, blocksDiff, gameEntity, gameHandle, ownerFor, status, reconcile, deferReconcile };
+    friendsDiff, blocksDiff, gameEntity, gameHandle, ownerFor, reconcile, deferReconcile };

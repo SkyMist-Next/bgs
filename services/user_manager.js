@@ -3,6 +3,7 @@
 const Service = require('./service');
 const wire = require('../social/wire');
 const friends = require('../social/friends-wire');
+const { registerSocialHandlers } = require('../social/errors');
 
 class UserManagerService extends Service {
     constructor({ logger, models, runtime }) {
@@ -13,12 +14,7 @@ class UserManagerService extends Service {
         runtime.register('blocks', {
             snapshot: owner => this.snapshot(owner), diff: friends.blocksDiff
         });
-        for (const name of ['Subscribe', 'Unsubscribe', 'BlockPlayer', 'UnblockPlayer', 'BlockPlayerForSession']) {
-            this.registerHandler(name, async context => {
-                try { return await this[name](context); }
-                catch (error) { throw friends.status(error, 'blocks'); }
-            });
-        }
+        registerSocialHandlers(this, ['Subscribe', 'Unsubscribe', 'BlockPlayer', 'UnblockPlayer', 'BlockPlayerForSession'], 'blocks');
     }
 
     async snapshot(owner) {

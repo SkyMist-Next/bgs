@@ -3,6 +3,7 @@
 const Service = require('./service');
 const wire = require('../social/wire');
 const friends = require('../social/friends-wire');
+const { registerSocialHandlers } = require('../social/errors');
 
 const TYPES = Object.freeze({ spamReport: 'spam', harassmentReport: 'harassment', realLifeThreatReport: 'real_life_threat',
     inappropriateBattleTagReport: 'inappropriate_battle_tag', hackingReport: 'hacking', bottingReport: 'botting' });
@@ -13,12 +14,7 @@ class ReportService extends Service {
         this.models = models;
         this.runtime = runtime;
         this.graph = runtime.graph;
-        for (const name of ['SendReport', 'SubmitReport']) {
-            this.registerHandler(name, async context => {
-                try { return await this[name](context); }
-                catch (error) { throw friends.status(error, 'report'); }
-            });
-        }
+        registerSocialHandlers(this, ['SendReport', 'SubmitReport'], 'report');
     }
 
     async SendReport(context) {
