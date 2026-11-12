@@ -4,7 +4,8 @@ const { jsonColumn: json } = require('../utils/json-column');
 const Service = require('./service');
 const wire = require('../social/wire');
 const presence = require('../social/presence-wire');
-const { ownerFor, gameEntity, storedId, status } = require('../social/friends-wire');
+const { ownerFor, gameEntity, storedId } = require('../social/friends-wire');
+const { registerSocialHandlers } = require('../social/errors');
 const { blocked } = require('../utils/admin-state');
 const entity = value => ({ high: value.high.toString(), low: value.low.toString() });
 const microseconds = () => (BigInt(Date.now()) * 1000n).toString();
@@ -17,11 +18,7 @@ class PresenceService extends Service {
         this.runtime.register('presence', { snapshot: (owner, row) => this.project(owner, row), diff: presence.diff });
         // Ownership rows bind the selected license to the authenticated connection. They produce no events.
         this.runtime.register('presence-owner', { snapshot: async () => ({}), diff: () => [] });
-        for (const name of ['Subscribe', 'Unsubscribe', 'Query', 'Update', 'Ownership', 'SubscribeNotification']) {
-            this.registerHandler(name, async context => {
-                try { return await this[name](context); } catch (error) { throw status(error); }
-            });
-        }
+        registerSocialHandlers(this, ['Subscribe', 'Unsubscribe', 'Query', 'Update', 'Ownership', 'SubscribeNotification']);
     }
     async resolve(value) {
         if (value?.high?.toString() === wire.ACCOUNT_HIGH) {
