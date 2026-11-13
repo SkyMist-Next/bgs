@@ -70,14 +70,12 @@ npm run local:credentials
 ```
 
 The preflight checks the existing namespace-scoped MariaDB operator, RabbitMQ
-operator, cert-manager, Gateway API v1 CRDs, `bgs-test-envoy` GatewayClass, and
-`bgs-local-tls` certificate Secret. Install these prerequisites separately; see
-the [chart documentation](../bgs-chart/README.md). This workflow uses the existing
-Envoy controller because this Minikube's Cilium does not support v1 TCPRoute.
+operator, cert-manager, and `bgs-local-tls` certificate Secret. Install these
+prerequisites separately; see the [chart documentation](../bgs-chart/README.md).
 Missing prerequisites fail before Helm changes the release.
 
-The forwarding helper discovers Envoy by Gateway labels and binds only loopback:
-frontend TLS on port 1119 and HTTPS on port 8443. For manual clients, resolve
+The forwarding helper port-forwards the frontend and REST Deployments and binds only
+loopback: frontend TLS on port 1119 and HTTPS on port 8443. For manual clients, resolve
 `bgs.local` to `127.0.0.1` (for example through your hosts file) and trust the
 dev CA bundle from `bgs-test/bgs-local-tls`. Export only its public CA bundle:
 
@@ -610,7 +608,7 @@ server chain, then publishes `tls.crt`, `tls.key`, and public `ca.crt` together 
 `minikube/bgs-test/bgs-local-tls`. It does not create a namespace, change system trust,
 or print private material. Existing field-ownership conflicts fail without forcing.
 Local preflight requires this CA bundle; login tests verify both endpoints against it.
-The default chart shares this Secret between Gateway HTTPS and frontend binary TLS.
+The default chart shares this Secret between REST HTTPS and frontend binary TLS.
 
 For direct Node use, set `BGS_TLS=true`, `BGS_TLS_SERVER_NAME=bgs.local`,
 `BGS_TLS_CERT_FILE=/secure/dev-fullchain.pem`, and `BGS_TLS_KEY_FILE=/secure/dev-key.pem`.
@@ -630,15 +628,14 @@ readiness automatically when dependencies are healthy. Injected `config.tls` cre
 are static. Shutdown cancels reloads and prevents late activation.
 
 Production enables `certificate.enabled`; cert-manager creates and renews the
-mutable TLS Secret used by the frontend and Gateway. For externally managed
-credentials, disable issuance and supply `gateway.frontendSecret` and
-`gateway.restSecret`. Only frontend
-pods mount server keys; Gateway terminates HTTPS and REST pods use internal HTTP.
-After renewal, check Gateway conditions, certificate fingerprints and expiry at both
-external endpoints, and each frontend replica's readiness/logs. Allow Kubernetes volume
-propagation plus one polling interval; no frontend rollout is required. Verify the chosen
-Gateway controller reconciles Secret updates. Monitor endpoint expiry independently,
-including the Gateway. Recover by republishing the previous still-valid credentials;
+mutable TLS Secret used by the frontend and REST. For externally managed
+credentials, disable issuance and supply `publicService.frontendSecret` and
+`publicService.restSecret`. Frontend and REST pods mount the server key and terminate
+TLS themselves; the public LoadBalancer Service passes TCP through unchanged.
+After renewal, check certificate fingerprints and expiry at both external endpoints,
+and each frontend/REST replica's readiness/logs. Allow Kubernetes volume
+propagation plus one polling interval; no rollout is required. Monitor endpoint
+expiry independently. Recover by republishing the previous still-valid credentials;
 CA changes require a coordinated external client trust rollout.
 
 ## Standalone administration and source-IP enforcement
@@ -668,13 +665,14 @@ handshake, with a three-second header timeout and 128 pending-header limit.
 Only trusted peers may supply it; missing/malformed/LOCAL/UDP headers fail closed.
 Fragmented headers and coalesced TLS bytes are preserved. TLS credential reload
 continues through the existing `setSecureContext` path. Direct mode is available
-for isolated tests; the chart defaults to direct TLS and enables v2 only with `gateway.proxyProtocol: v2`.
+for isolated tests and is the only mode the chart deploys: since chart 3.0.0 the public
+LoadBalancer Service preserves client addresses (Cilium DSR) instead of a PROXY-sending gateway.
 
 REST enforces IP bans against the frontend address stored in the login ticket,
 not its HTTPS peer or forwarding headers. Missing or invalid ticket addresses
 fail authentication closed when enforcement is enabled. The chart keeps HTTP
 proxy trust disabled. Optional PROXY v2 mode requires only frontend trusted-peer
-CIDRs and its existing Envoy Gateway resources and ingress restrictions.
+CIDRs and a PROXY-sending load balancer, which the chart no longer deploys.
 Login URLs/tickets and credential payloads are excluded from access logs.
 
 See [standalone administration](../skymist-admin/README.md), its

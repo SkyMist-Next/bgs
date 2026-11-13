@@ -53,21 +53,15 @@ async function preflight() {
     if (version[0] !== 26 || version[1] < 13) { throw new Error('Select Node.js 26.13.0+ in the 26.x series with nvm use'); }
     await get('namespace', NAMESPACE);
     for (const crd of ['mariadbs.k8s.mariadb.com', 'databases.k8s.mariadb.com', 'users.k8s.mariadb.com',
-        'grants.k8s.mariadb.com', 'rabbitmqclusters.rabbitmq.com', 'gateways.gateway.networking.k8s.io',
-        'tcproutes.gateway.networking.k8s.io', 'tlsroutes.gateway.networking.k8s.io']) {
-        const definition = await get('crd', crd);
-        if (!condition(definition, 'Established')) { throw new Error('CRD not established: ' + crd); }
-        if (crd.endsWith('gateway.networking.k8s.io') && !definition.spec.versions.some(v => v.name === 'v1' && v.served)) {
-            throw new Error('Gateway API v1 required: ' + crd);
-        }
+        'grants.k8s.mariadb.com', 'rabbitmqclusters.rabbitmq.com']) {
+        if (!condition(await get('crd', crd), 'Established')) { throw new Error('CRD not established: ' + crd); }
     }
     for (const [namespace, name] of [[NAMESPACE, 'bgs-test-mariadb-mariadb-operator'],
-        ['rabbitmq-system', 'rabbitmq-cluster-operator'], ['bgs-test-envoy', 'envoy-gateway'],
+        ['rabbitmq-system', 'rabbitmq-cluster-operator'],
         ['cert-manager', 'bgs-test-cert-manager'], ['cert-manager', 'bgs-test-cert-manager-webhook']]) {
         const deployment = await get('deployment', name, ['-n', namespace]);
         if (!condition(deployment, 'Available')) { throw new Error('Operator unavailable: ' + name); }
     }
-    if (!condition(await get('gatewayclass', 'bgs-test-envoy'), 'Accepted')) { throw new Error('GatewayClass bgs-test-envoy is not accepted'); }
     const secret = await get('secret', 'bgs-local-tls');
     if (!secret.data?.['ca.crt']) { throw new Error('Import dev credentials and CA with npm run local:tls'); }
     require('../utils/tls-credentials').validate({ cert: await certificatePem(),
@@ -100,12 +94,24 @@ async function forward(allowExisting = false) {
         if (allowExisting && free.every(value => !value)) { return async () => {}; }
         throw new Error('Local ports 1119 and 8443 must both be free; stop conflicting forwards first');
     }
-    const services = await get('services', null, ['-A', '-l',
-        `gateway.envoyproxy.io/owning-gateway-name=${NAME},gateway.envoyproxy.io/owning-gateway-namespace=${NAMESPACE}`]);
-    if (services.items.length !== 1) { throw new Error('Expected one Envoy Service for the BGS Gateway'); }
-    const service = services.items[0];
-    const child = spawn('kubectl', ['--context', CONTEXT, '-n', service.metadata.namespace, 'port-forward',
-        '--address=127.0.0.1', 'service/' + service.metadata.name, '1119:1119', '8443:443'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    // Frontend and REST are different Pods behind one Service, and a Service port-forward
+    // binds a single Pod, so forward each Deployment separately.
+    const stops = [];
+    try {
+        stops.push(await portForward('deployment/' + NAME + '-frontend', '1119:1119'));
+        stops.push(await portForward('deployment/' + NAME + '-rest', '8443:8080'));
+    }
+    catch (error) { await Promise.all(stops.map(item => item())); throw error; }
+    const stop = async () => { await Promise.all(stops.map(item => item())); };
+    stop.closed = Promise.race(stops.map(item => item.closed));
+    console.log('Forwarded: bgs.local:1119 and https://bgs.local:8443');
+    return stop;
+}
+
+async function portForward(target, mapping) {
+    const local = '127.0.0.1:' + mapping.split(':')[0];
+    const child = spawn('kubectl', ['--context', CONTEXT, '-n', NAMESPACE, 'port-forward',
+        '--address=127.0.0.1', target, mapping], { stdio: ['ignore', 'pipe', 'pipe'] });
     children.add(child);
     const closed = once(child, 'close').catch(() => {});
     child.once('close', () => children.delete(child));
@@ -118,21 +124,20 @@ async function forward(allowExisting = false) {
     try {
         await new Promise((resolve, reject) => {
             let output = '';
-            const timer = setTimeout(() => reject(new Error('Envoy port forwarding timed out')), 15000);
-            const failed = () => { clearTimeout(timer); reject(new Error('Envoy port forwarding failed')); };
+            const timer = setTimeout(() => reject(new Error(`Port forwarding to ${target} timed out`)), 15000);
+            const failed = () => { clearTimeout(timer); reject(new Error(`Port forwarding to ${target} failed`)); };
             child.once('error', failed);
             child.once('close', failed);
             child.stderr.resume();
             child.stdout.on('data', data => {
                 output = (output + data).slice(-4096);
-                if (output.includes('127.0.0.1:1119') && output.includes('127.0.0.1:8443')) {
+                if (output.includes(local)) {
                     clearTimeout(timer); child.removeListener('close', failed); resolve();
                 }
             });
         });
     }
     catch (error) { await stop(); throw error; }
-    console.log('Envoy forwarded: bgs.local:1119 and https://bgs.local:8443');
     stop.closed = closed;
     return stop;
 }
