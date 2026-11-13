@@ -40,7 +40,6 @@ deploy:
         skipBuildDependencies: true
         wait: true
         setValues:
-          gateway.className: bgs-test-envoy
           webAuthUrl: https://bgs.local:8443/bnetserver/login/
         setValueTemplates:
           image.repository: '{{.IMAGE_REPO_bgs}}'

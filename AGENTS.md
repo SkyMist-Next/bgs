@@ -19,7 +19,7 @@ Entry points: `frontend.js` (client TCP connections), `rest.js` (web authenticat
 - `skaffold run --kube-context minikube`: build locally and upgrade the sibling chart's existing `bgs-test` release.
 - `npm run local:dev`: run Skaffold with release cleanup disabled; preserve the database and PVCs.
 - `npm run test:local`: check the deployed stack and full RPC/HTTPS login with a retained local fixture account.
-- `npm run local:forward` / `npm run local:credentials`: forward Envoy on loopback ports 1119/8443 or explicitly display the local fixture credentials.
+- `npm run local:forward` / `npm run local:credentials`: forward the frontend and REST Deployments on loopback ports 1119/8443 or explicitly display the local fixture credentials.
 - `npm run check:runtime`: load production dependencies and exercise native addons.
 - `node scripts/benchmark-auth.js`: compare synchronous and asynchronous password checks with local HTTP and dependency substitutes.
 - `node --check services/authentication.js`: check syntax; substitute the changed file.
