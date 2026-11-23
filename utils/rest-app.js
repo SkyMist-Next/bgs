@@ -38,6 +38,7 @@ module.exports = function createRestApp({ models, store, logger, authenticator, 
     }
 
     rest.get('/bnetserver/login/:loginTicket', (req, res) => {
+        logger.debug('Received login form request for loginTicket: ' + req.params.loginTicket);
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.json({
             'type': 'LOGIN_FORM',
@@ -60,31 +61,50 @@ module.exports = function createRestApp({ models, store, logger, authenticator, 
     });
 
     rest.post('/bnetserver/login/:loginTicket', (req, res) => track(async () => {
+        logger.debug('Received login request for loginTicket: ' + req.params.loginTicket);
         const inputs = req.body && req.body.inputs;
+
         if (!Array.isArray(inputs) || inputs.some(input =>
             !input || typeof input !== 'object' || typeof input.input_id !== 'string')) {
+            logger.debug('Received malformed login form data');
             return res.sendStatus(400);
         }
+
         if (!isAccepting()) { return res.sendStatus(500); }
+
         const ticket = await store.getLoginTicket(req.params.loginTicket);
-        if (!ticket) { return res.sendStatus(500); }
+
+        if (!ticket) {
+            logger.debug('Received invalid login ticket: ' + req.params.loginTicket);
+            return res.sendStatus(500);
+        }
+
         await checkIP(models, ticket.address);
         const codes = inputs.filter(input => input.input_id === 'authenticator_token');
+
         if (codes.length) {
             if (codes.length !== 1 || inputs.length !== 1 || !/^[0-9]{8}$/.test(codes[0].value) || typeof codes[0].value !== 'string') {
                 return res.sendStatus(400);
             }
+
             if (!ticket.authenticatorPending || !authenticator) { return res.json({ authentication_state: 'LOGIN' }); }
+
             const pending = JSON.parse(ticket.authenticatorPending);
             const account = await models.Account.findByPk(pending.accountId);
+
             if (blocked(account) || pending.expiresAt * 1000 <= Date.now()) { return res.json({ authentication_state: 'LOGIN' }); }
+
             const proof = await authenticator.verify(account, pending, codes[0].value);
+
             if (!proof) { return res.json({ authentication_state: 'TOKEN' }); }
+
             await store.authorizeLoginTicket(req.params.loginTicket, account.id, proof, pending.challenge);
             return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
         }
+
         const names = inputs.filter(input => input.input_id === 'account_name');
         const passwords = inputs.filter(input => input.input_id === 'password');
+
         if (names.length !== 1 || passwords.length !== 1 ||
             typeof names[0].value !== 'string' || typeof passwords[0].value !== 'string' ||
             !names[0].value || !passwords[0].value || Buffer.byteLength(passwords[0].value) > 72) {
@@ -93,16 +113,22 @@ module.exports = function createRestApp({ models, store, logger, authenticator, 
 
         // The frontend records the client address; the HTTPS peer may be a gateway.
         const account = await models.Account.findOne({ where: { email: names[0].value } });
+
         if (blocked(account) || !await compare(passwords[0].value, account.hash)) {
+            logger.debug('Wrong password for account: ' + account.id);
             return res.json({ authentication_state: 'LOGIN' });
         }
+
         const state = metadata(account);
+
         if (state.authenticatorState === 2) {
             if (!authenticator?.key) { throw new Error('Authenticator unavailable'); }
             await store.beginAuthenticator(req.params.loginTicket, account.id, state);
             return res.json({ authentication_state: 'TOKEN' });
         }
+
         await store.authorizeLoginTicket(req.params.loginTicket, account.id, state);
+
         return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
     }));
 
