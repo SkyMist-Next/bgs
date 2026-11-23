@@ -26,9 +26,9 @@ class Listener {
         this.hash = parseInt(hash.digest('hex'), 16);
 
         this.channelReady = this.amqpConnection.createChannel().
-        then((channel) => {
-            this.amqpChannel = channel;
-        });
+            then((channel) => {
+                this.amqpChannel = channel;
+            });
     }
 
     async destroy() {

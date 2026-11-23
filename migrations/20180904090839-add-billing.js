@@ -12,7 +12,7 @@ module.exports = {
                 allowNull: true,
                 defaultValue: 0
             });
-        })
+        });
     },
 
     down: (queryInterface) => {

@@ -23,7 +23,7 @@ module.exports = (sequelize, DataTypes) => {
         billingPlan: { type: DataTypes.TINYINT, allowNull: true, defaultValue: 0, field: 'billing_plan' },
         billingTimeRemaining: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: 'billing_time_remaining' },
         tutorialData: { type: DataTypes.BLOB('tiny'), allowNull: true, field: 'tutorial_data' }
-        }, {
+    }, {
         getterMethods: {
             entityId() {
                 let id = entityId.create();

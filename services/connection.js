@@ -33,73 +33,73 @@ class ConnectionService extends Service {
 
     Connect(context) {
         return this.amqpConnection.createChannel().
-        then(async (channel) => {
-            if (context.connection.setAmqpChannel(channel) === false) {
-                await context.connection.disconnect();
-                throw new Error('Client disconnected during channel startup');
-            }
-            return Promise.resolve(channel);
-        }).
-        then((channel) => {
-            if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
-            return channel.assertQueue('', {autoDelete: true, exclusive: true, durable: false});
-        }).
-        then((result) => {
-            if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
-            context.connection.setAmqpQueueName(result.queue);
-            return context.connection.setupConsumer();
-        }).
-        then(async ()=> {
-            if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
-            if(context.request.clientId !== null) {
-                context.connection.setClientId(context.request.clientId);
-                context.response.clientId = context.request.clientId;
-            }
+            then(async (channel) => {
+                if (context.connection.setAmqpChannel(channel) === false) {
+                    await context.connection.disconnect();
+                    throw new Error('Client disconnected during channel startup');
+                }
+                return Promise.resolve(channel);
+            }).
+            then((channel) => {
+                if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
+                return channel.assertQueue('', {autoDelete: true, exclusive: true, durable: false});
+            }).
+            then((result) => {
+                if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
+                context.connection.setAmqpQueueName(result.queue);
+                return context.connection.setupConsumer();
+            }).
+            then(async ()=> {
+                if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
+                if(context.request.clientId !== null) {
+                    context.connection.setClientId(context.request.clientId);
+                    context.response.clientId = context.request.clientId;
+                }
 
-            // use_bindless_rpc defaults to true in ConnectRequest.
-            context.connection.setBindlessRPC(context.request.useBindlessRpc !== false);
+                // use_bindless_rpc defaults to true in ConnectRequest.
+                context.connection.setBindlessRPC(context.request.useBindlessRpc !== false);
 
-            const registered = [];
-            const services = await this.store.listMetadata('/aurora/services/');
-            for (const [path, value] of Object.entries(services)) {
-                if (/^\/aurora\/services\/[^/]+\/hash$/.test(path)) {
-                    const hash = Number(value);
-                    if (!Number.isInteger(hash) || hash < 0 || hash > 0xFFFFFFFF) {
-                        throw new Error('Invalid registered service hash');
+                const registered = [];
+                const services = await this.store.listMetadata('/aurora/services/');
+                for (const [path, value] of Object.entries(services)) {
+                    if (/^\/aurora\/services\/[^/]+\/hash$/.test(path)) {
+                        const hash = Number(value);
+                        if (!Number.isInteger(hash) || hash < 0 || hash > 0xFFFFFFFF) {
+                            throw new Error('Invalid registered service hash');
+                        }
+                        registered.push(hash);
                     }
-                    registered.push(hash);
                 }
-            }
 
-            if (context.connection.getBindlessRPC()) {
-                for (const hash of registered) { context.connection.exportedServiceAdd(hash); }
-            }
-
-            context.response.serverId = ProcessId.create();
-            context.response.serverId.label = process.pid;
-            context.response.serverId.epoch = Math.floor(Date.now());
-            context.response.serverTime = microtime.now();
-            context.response.useBindlessRpc = context.connection.getBindlessRPC();
-
-            if (!context.connection.getBindlessRPC()) {
-                const assigned = context.connection.bind(context.request.bindRequest, new Set(registered));
-                if (assigned.length) {
-                    context.response.bindResponse = BindResponse.create({ importedServiceId: assigned });
+                if (context.connection.getBindlessRPC()) {
+                    for (const hash of registered) { context.connection.exportedServiceAdd(hash); }
                 }
-                context.response.bindResult = 0;
-            }
 
-            return Promise.resolve(0);
-        }).
-        catch((error) => {
-            if (Number.isInteger(error)) {
-                return Promise.reject(error);
-            }
-            else {
-                this.logger.error(error);
-                return Promise.reject(0x1); //fill with error
-            }
-        });
+                context.response.serverId = ProcessId.create();
+                context.response.serverId.label = process.pid;
+                context.response.serverId.epoch = Math.floor(Date.now());
+                context.response.serverTime = microtime.now();
+                context.response.useBindlessRpc = context.connection.getBindlessRPC();
+
+                if (!context.connection.getBindlessRPC()) {
+                    const assigned = context.connection.bind(context.request.bindRequest, new Set(registered));
+                    if (assigned.length) {
+                        context.response.bindResponse = BindResponse.create({ importedServiceId: assigned });
+                    }
+                    context.response.bindResult = 0;
+                }
+
+                return Promise.resolve(0);
+            }).
+            catch((error) => {
+                if (Number.isInteger(error)) {
+                    return Promise.reject(error);
+                }
+                else {
+                    this.logger.error(error);
+                    return Promise.reject(0x1); //fill with error
+                }
+            });
     }
 
     async KeepAlive(context) {

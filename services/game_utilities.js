@@ -21,7 +21,7 @@ function GetJSON(variant, name) {
 }
 
 function deflateJSONAttributeValue(name, object) {
-    let string = name + ":" + JSON.stringify(object);
+    let string = name + ':' + JSON.stringify(object);
     let stringBuffer = Buffer.from(string);
     let CStringBuffer = Buffer.alloc(stringBuffer.length + 1);
     stringBuffer.copy(CStringBuffer);

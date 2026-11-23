@@ -45,21 +45,21 @@ class Service {
     sendError(context, error) {
         let errorHeader = Header.fromObject(context.header);
 
-            if (Number.isInteger(error)) {
-                errorHeader.status = error;
-            }
-            else {
-                this.logger.error(error);
-                errorHeader.status = 0x00000001;
-            }
+        if (Number.isInteger(error)) {
+            errorHeader.status = error;
+        }
+        else {
+            this.logger.error(error);
+            errorHeader.status = 0x00000001;
+        }
 
-            errorHeader.serviceId = 0xFE;
-            errorHeader.size = 0;
-            let headerBuffer = Header.encode(errorHeader).finish();
-            let buffer = Buffer.alloc(2 + headerBuffer.length);
-            buffer.writeUInt16BE(headerBuffer.length, 0);
-            headerBuffer.copy(buffer, 2);
-            return Promise.resolve(buffer);
+        errorHeader.serviceId = 0xFE;
+        errorHeader.size = 0;
+        let headerBuffer = Header.encode(errorHeader).finish();
+        let buffer = Buffer.alloc(2 + headerBuffer.length);
+        buffer.writeUInt16BE(headerBuffer.length, 0);
+        headerBuffer.copy(buffer, 2);
+        return Promise.resolve(buffer);
     }
 
     handleCall(context, payload) {

@@ -2,6 +2,7 @@
 
 const js = require('@eslint/js');
 const node = require('eslint-plugin-n');
+const stylistic = require('@stylistic/eslint-plugin');
 
 module.exports = [
     // This unfinished, unused stub references an absent Realm model.
@@ -15,6 +16,15 @@ module.exports = [
             'n/exports-style': ['error', 'module.exports'],
             // This application is deployed as a container, not published to npm.
             'n/no-unpublished-require': 'off'
+        }
+    },
+    {
+        files: ['**/*.js'],
+        plugins: { '@stylistic': stylistic },
+        rules: {
+            '@stylistic/indent': ['error', 4],
+            '@stylistic/quotes': ['error', 'single', { avoidEscape: true }],
+            '@stylistic/semi': ['error', 'always']
         }
     },
     {

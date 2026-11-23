@@ -76,101 +76,101 @@ function validate(body, properties, now = Date.now()) {
     if (Date.parse(request.deadline) > now + 300000) { throw new Failure('DEADLINE_TOO_DISTANT'); }
     const args = request.arguments;
     switch (request.operation) {
-    case 'social.presence':
-        require('../social/realm-contract').validatePresence(args);
-        break;
-    case 'social.call':
-        require('../social/realm-contract').validateCall(args);
-        break;
-    case 'process.claim': case 'process.check':
-        exact(args, request.operation === 'process.claim' ? ['revision', 'build', 'expansion', 'previous_epoch', 'epoch'] : ['revision', 'build', 'expansion', 'epoch']);
-        if (request.game_account_id !== '0' || request.generation !== '0' || typeof args.revision !== 'string' || !/^[a-f0-9]{64}$/.test(args.revision) ||
+        case 'social.presence':
+            require('../social/realm-contract').validatePresence(args);
+            break;
+        case 'social.call':
+            require('../social/realm-contract').validateCall(args);
+            break;
+        case 'process.claim': case 'process.check':
+            exact(args, request.operation === 'process.claim' ? ['revision', 'build', 'expansion', 'previous_epoch', 'epoch'] : ['revision', 'build', 'expansion', 'epoch']);
+            if (request.game_account_id !== '0' || request.generation !== '0' || typeof args.revision !== 'string' || !/^[a-f0-9]{64}$/.test(args.revision) ||
             !Number.isInteger(args.build) || args.build < 1 || args.build > 4294967295 || !Number.isInteger(args.expansion) || args.expansion < 0 || args.expansion > 127 || !UUID.test(args.epoch) ||
             (request.operation === 'process.claim' && args.previous_epoch !== '' && !UUID.test(args.previous_epoch))) { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'guild.publish':
-        exact(args, ['operation_id', 'plan_hash', 'epoch']);
-        if (request.game_account_id !== '0' || request.generation !== '0' ||
+            break;
+        case 'guild.publish':
+            exact(args, ['operation_id', 'plan_hash', 'epoch']);
+            if (request.game_account_id !== '0' || request.generation !== '0' ||
             typeof args.operation_id !== 'string' || !/^[a-f0-9]{32}$/.test(args.operation_id) ||
             typeof args.plan_hash !== 'string' || !/^[a-f0-9]{64}$/.test(args.plan_hash) ||
             typeof args.epoch !== 'string' || !/^[a-f0-9]{32}$/.test(args.epoch)) { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'realm.authenticators':
-        exact(args, ['game_accounts']);
-        if (request.game_account_id !== '0' || request.generation !== '0' || !Array.isArray(args.game_accounts) ||
+            break;
+        case 'realm.authenticators':
+            exact(args, ['game_accounts']);
+            if (request.game_account_id !== '0' || request.generation !== '0' || !Array.isArray(args.game_accounts) ||
             !args.game_accounts.length || args.game_accounts.length > 100 || new Set(args.game_accounts).size !== args.game_accounts.length) {
-            throw new Failure('INVALID_ARGUMENTS');
-        }
-        args.game_accounts.forEach(value => id(value));
-        break;
-    case 'realm.probe':
-        exact(args, []);
-        if (request.game_account_id !== '0' || request.generation !== '0') { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'state.pending': case 'realm.catalog':
-        exact(args, ['after', 'limit']);
-        if (request.game_account_id !== '0' || request.generation !== '0' || (args.after !== '' && !UUID.test(args.after)) ||
+                throw new Failure('INVALID_ARGUMENTS');
+            }
+            args.game_accounts.forEach(value => id(value));
+            break;
+        case 'realm.probe':
+            exact(args, []);
+            if (request.game_account_id !== '0' || request.generation !== '0') { throw new Failure('INVALID_ARGUMENTS'); }
+            break;
+        case 'state.pending': case 'realm.catalog':
+            exact(args, ['after', 'limit']);
+            if (request.game_account_id !== '0' || request.generation !== '0' || (args.after !== '' && !UUID.test(args.after)) ||
             !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'session.open': exact(args, []); if (request.generation !== '0') { throw new Failure('INVALID_GENERATION'); } break;
-    case 'account.policy':
-        exact(args, ['address']);
-        try { if (canonicalIP(args.address) !== args.address) { throw new Error(); } }
-        catch { throw new Failure('INVALID_PEER_ADDRESS'); }
-        break;
-    case 'account.restore-policy': exact(args, []); break;
-    case 'client.join':
-        exact(args, ['realm_address', 'client_secret', 'locale', 'platform', 'peer']);
-        if (!Number.isInteger(args.realm_address) || args.realm_address < 1 || args.realm_address > 4294967295 ||
+            break;
+        case 'session.open': exact(args, []); if (request.generation !== '0') { throw new Failure('INVALID_GENERATION'); } break;
+        case 'account.policy':
+            exact(args, ['address']);
+            try { if (canonicalIP(args.address) !== args.address) { throw new Error(); } }
+            catch { throw new Failure('INVALID_PEER_ADDRESS'); }
+            break;
+        case 'account.restore-policy': exact(args, []); break;
+        case 'client.join':
+            exact(args, ['realm_address', 'client_secret', 'locale', 'platform', 'peer']);
+            if (!Number.isInteger(args.realm_address) || args.realm_address < 1 || args.realm_address > 4294967295 ||
             typeof args.client_secret !== 'string' || !/^[a-f0-9]{64}$/.test(args.client_secret) ||
             typeof args.locale !== 'string' || !/^[a-z]{2}[A-Z]{2}$/.test(args.locale) ||
             typeof args.platform !== 'string' || !/^[A-Za-z0-9]{1,4}$/.test(args.platform)) { throw new Failure('INVALID_ARGUMENTS'); }
-        try { if (canonicalIP(args.peer) !== args.peer) { throw new Error(); } }
-        catch { throw new Failure('INVALID_PEER_ADDRESS'); }
-        break;
-    case 'state.read':
-        exact(args, ['domain', 'after', 'limit']);
-        if (!DOMAINS.has(args.domain) || typeof args.after !== 'string' || !/^[a-zA-Z0-9_.:-]{0,64}$/.test(args.after) || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 10) { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'state.put':
-        change(args, request.realm.realm_uid);
-        if (args.domain === 'undelete') { throw new Failure('RESTORATION_REQUIRES_RESERVATION'); }
-        break;
-    case 'state.begin':
-        exact(args, ['change_count', 'chunk_count']);
-        if (!Number.isInteger(args.change_count) || args.change_count < 1 || args.change_count > MAX_CHANGES ||
+            try { if (canonicalIP(args.peer) !== args.peer) { throw new Error(); } }
+            catch { throw new Failure('INVALID_PEER_ADDRESS'); }
+            break;
+        case 'state.read':
+            exact(args, ['domain', 'after', 'limit']);
+            if (!DOMAINS.has(args.domain) || typeof args.after !== 'string' || !/^[a-zA-Z0-9_.:-]{0,64}$/.test(args.after) || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 10) { throw new Failure('INVALID_ARGUMENTS'); }
+            break;
+        case 'state.put':
+            change(args, request.realm.realm_uid);
+            if (args.domain === 'undelete') { throw new Failure('RESTORATION_REQUIRES_RESERVATION'); }
+            break;
+        case 'state.begin':
+            exact(args, ['change_count', 'chunk_count']);
+            if (!Number.isInteger(args.change_count) || args.change_count < 1 || args.change_count > MAX_CHANGES ||
             !Number.isInteger(args.chunk_count) || args.chunk_count < 1 || args.chunk_count > MAX_CHUNKS ||
             args.chunk_count > args.change_count || args.change_count > args.chunk_count * 16) { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'state.prepare': case 'state.append': {
-        exact(args, request.operation === 'state.append' ? ['reservation_id', 'index', 'changes'] : ['changes']);
-        if (request.operation === 'state.append' && (!UUID.test(args.reservation_id) || !Number.isInteger(args.index) || args.index < 0 || args.index >= MAX_CHUNKS)) {
-            throw new Failure('INVALID_ARGUMENTS');
+            break;
+        case 'state.prepare': case 'state.append': {
+            exact(args, request.operation === 'state.append' ? ['reservation_id', 'index', 'changes'] : ['changes']);
+            if (request.operation === 'state.append' && (!UUID.test(args.reservation_id) || !Number.isInteger(args.index) || args.index < 0 || args.index >= MAX_CHUNKS)) {
+                throw new Failure('INVALID_ARGUMENTS');
+            }
+            if (!Array.isArray(args.changes) || !args.changes.length || args.changes.length > 16) { throw new Failure('INVALID_ARGUMENTS'); }
+            const seen = new Set();
+            for (const value of args.changes) {
+                change(value, request.realm.realm_uid);
+                const key = value.domain + '/' + value.key;
+                if (seen.has(key)) { throw new Failure('DUPLICATE_CHANGE'); }
+                seen.add(key);
+            }
+            break;
         }
-        if (!Array.isArray(args.changes) || !args.changes.length || args.changes.length > 16) { throw new Failure('INVALID_ARGUMENTS'); }
-        const seen = new Set();
-        for (const value of args.changes) {
-            change(value, request.realm.realm_uid);
-            const key = value.domain + '/' + value.key;
-            if (seen.has(key)) { throw new Failure('DUPLICATE_CHANGE'); }
-            seen.add(key);
-        }
-        break;
-    }
-    case 'state.seal': case 'state.commit': case 'state.abort':
-        exact(args, ['reservation_id']);
-        if (!UUID.test(args.reservation_id)) { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'characters.read':
-        exact(args, ['after', 'limit']);
-        if (!Number.isInteger(args.after) || args.after < 0 || args.after > 65535 || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) { throw new Failure('INVALID_ARGUMENTS'); }
-        break;
-    case 'characters.summary':
-        exact(args, ['count', 'last_character']);
-        if (!Number.isInteger(args.count) || args.count < 0 || args.count > 255) { throw new Failure('INVALID_ARGUMENTS'); }
-        if (args.last_character !== null) { id(args.last_character); }
-        break;
-    default: throw new Failure('UNSUPPORTED_OPERATION');
+        case 'state.seal': case 'state.commit': case 'state.abort':
+            exact(args, ['reservation_id']);
+            if (!UUID.test(args.reservation_id)) { throw new Failure('INVALID_ARGUMENTS'); }
+            break;
+        case 'characters.read':
+            exact(args, ['after', 'limit']);
+            if (!Number.isInteger(args.after) || args.after < 0 || args.after > 65535 || !Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100) { throw new Failure('INVALID_ARGUMENTS'); }
+            break;
+        case 'characters.summary':
+            exact(args, ['count', 'last_character']);
+            if (!Number.isInteger(args.count) || args.count < 0 || args.count > 255) { throw new Failure('INVALID_ARGUMENTS'); }
+            if (args.last_character !== null) { id(args.last_character); }
+            break;
+        default: throw new Failure('UNSUPPORTED_OPERATION');
     }
     return request;
 }

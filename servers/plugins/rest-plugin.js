@@ -30,7 +30,11 @@ class RestPlugin {
         signal.throwIfAborted();
         const { Authenticator, loadKey } = require('../../utils/authenticator');
         this.authenticator = new Authenticator(context.models, loadKey(this.config.env?.BGS_AUTHENTICATOR_KEY_FILE));
-        this.app = createRestApp({ ...context, exposeHealth: !this.config.healthPort, trustedProxyCIDRs: this.config.trustedHttpProxyCIDRs || [], compare: this.factories.compare,
+        this.app = createRestApp({
+            ...context,
+            exposeHealth: !this.config.healthPort,
+            trustedProxyCIDRs: this.config.trustedHttpProxyCIDRs || [],
+            compare: this.factories.compare,
             authenticator: this.authenticator,
             isAccepting: () => this.accepting && context.isAccepting(), track: operation => this.track(operation) });
         this.server = (this.config.tlsEnabled ?? (this.config.environment === 'development'))

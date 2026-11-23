@@ -66,33 +66,33 @@ class AccountService extends Service{
 
         // Game status reports ban state, so a blocked license remains readable by its owner except on 15595.
         return this.sessions.ownedGame(owner, context.request.gameAccountId.low.toString(), { includeBlocked: true }).
-        then((gameAccount) => {
-            let name = gameAccount.displayName;
-            if (owner.applicationVersion === 15595) {
-                if (blocked(gameAccount) || context.request.gameAccountId.high.toString() !== gameAccount.entityId.high.toString()) { throw 0xA; }
-                try { name = realmAccountName(gameAccount.accountId, gameAccount.wowLicenseIndex); }
-                catch { throw 0xA; }
-            }
-            if(Object.hasOwn(context.request.options, 'fieldGameLevelInfo')) {
-                context.response.state.gameLevelInfo = GameLevelInfo.create();
-                context.response.state.gameLevelInfo.name = name;
-                context.response.state.gameLevelInfo.program = gameAccount.entityId.high.getLowBitsUnsigned();
+            then((gameAccount) => {
+                let name = gameAccount.displayName;
+                if (owner.applicationVersion === 15595) {
+                    if (blocked(gameAccount) || context.request.gameAccountId.high.toString() !== gameAccount.entityId.high.toString()) { throw 0xA; }
+                    try { name = realmAccountName(gameAccount.accountId, gameAccount.wowLicenseIndex); }
+                    catch { throw 0xA; }
+                }
+                if(Object.hasOwn(context.request.options, 'fieldGameLevelInfo')) {
+                    context.response.state.gameLevelInfo = GameLevelInfo.create();
+                    context.response.state.gameLevelInfo.name = name;
+                    context.response.state.gameLevelInfo.program = gameAccount.entityId.high.getLowBitsUnsigned();
 
-                context.response.tags.gameLevelInfoTag = 0x5C46D483;
-            }
+                    context.response.tags.gameLevelInfoTag = 0x5C46D483;
+                }
 
-            if(Object.hasOwn(context.request.options, 'fieldGameStatus')) {
-                context.response.state.gameStatus = GameStatus.create();
-                context.response.state.gameStatus.name = gameAccount.displayName;
-                context.response.state.gameStatus.program = gameAccount.entityId.high.getLowBitsUnsigned();
-                context.response.state.gameStatus.isBanned = banned(gameAccount);
-                context.response.state.gameStatus.isSuspended = gameAccount.isSuspended;
+                if(Object.hasOwn(context.request.options, 'fieldGameStatus')) {
+                    context.response.state.gameStatus = GameStatus.create();
+                    context.response.state.gameStatus.name = gameAccount.displayName;
+                    context.response.state.gameStatus.program = gameAccount.entityId.high.getLowBitsUnsigned();
+                    context.response.state.gameStatus.isBanned = banned(gameAccount);
+                    context.response.state.gameStatus.isSuspended = gameAccount.isSuspended;
 
-                context.response.tags.gameStatusTag = 0x98B75F99;
-            }
+                    context.response.tags.gameStatusTag = 0x98B75F99;
+                }
 
-            return Promise.resolve(0);
-        });
+                return Promise.resolve(0);
+            });
     }
 }
 
