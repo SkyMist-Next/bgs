@@ -13,13 +13,18 @@ module.exports = function openSqlQueryLog(filename, logger) {
         path: path.dirname(filename),
         size: '10M',
         rotate: 3,
-        mode: 0o600
+        mode: 0o600,
     });
-    stream.once('error', () => logger?.error('SQL query log file unavailable; query logging disabled'));
+    stream.once('error', () =>
+        logger?.error('SQL query log file unavailable; query logging disabled'),
+    );
     return {
         write(message) {
             if (stream.writable && !stream.writableNeedDrain) {
-                stream.write(JSON.stringify({ timestamp: new Date().toISOString(), message }) + '\n');
+                stream.write(
+                    JSON.stringify({ timestamp: new Date().toISOString(), message }) +
+            '\n',
+                );
             }
         },
         async close() {
@@ -29,6 +34,8 @@ module.exports = function openSqlQueryLog(filename, logger) {
             stream.end();
             await flushed;
         },
-        destroy() { stream.destroy(); }
+        destroy() {
+            stream.destroy();
+        },
     };
 };

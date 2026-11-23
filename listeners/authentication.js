@@ -5,8 +5,12 @@ const crypto = require('crypto');
 const Listener = require('./listener');
 
 class AuthenticationListener extends Listener {
-    constructor(context, amqpConnection){
-        super('AuthenticationListener', 'proto/bgs/low/pb/client/authentication_service.proto', amqpConnection);
+    constructor(context, amqpConnection) {
+        super(
+            'AuthenticationListener',
+            'proto/bgs/low/pb/client/authentication_service.proto',
+            amqpConnection,
+        );
         this.setClientQueueName(context.queueName);
     }
 
@@ -14,7 +18,7 @@ class AuthenticationListener extends Listener {
         return this.call('OnLogonComplete', (request) => {
             request.errorCode = status;
 
-            if(account) {
+            if (account) {
                 request.accountId = account.entityId;
 
                 request.battleTag = account.battleTag;

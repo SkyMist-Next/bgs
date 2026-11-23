@@ -3,11 +3,13 @@
 const js = require('@eslint/js');
 const node = require('eslint-plugin-n');
 const stylistic = require('@stylistic/eslint-plugin');
+const eslintConfigPrettier = require('eslint-config-prettier');
 
 module.exports = [
     // This unfinished, unused stub references an absent Realm model.
     { ignores: ['services/wow/realmlist.js', 'config/**'] },
     js.configs.recommended,
+    eslintConfigPrettier,
     node.configs['flat/recommended-script'],
     {
         languageOptions: { ecmaVersion: 2026, sourceType: 'commonjs' },
@@ -15,8 +17,8 @@ module.exports = [
             'no-restricted-globals': ['error', 'global', 'globalThis'],
             'n/exports-style': ['error', 'module.exports'],
             // This application is deployed as a container, not published to npm.
-            'n/no-unpublished-require': 'off'
-        }
+            'n/no-unpublished-require': 'off',
+        },
     },
     {
         files: ['**/*.js'],
@@ -24,11 +26,11 @@ module.exports = [
         rules: {
             '@stylistic/indent': ['error', 4],
             '@stylistic/quotes': ['error', 'single', { avoidEscape: true }],
-            '@stylistic/semi': ['error', 'always']
-        }
+            '@stylistic/semi': ['error', 'always'],
+        },
     },
     {
         files: ['frontend.js', 'server.js', 'rest.js', 'servers/cli.js'],
-        rules: { 'n/no-process-exit': 'off' } // Preserve fatal startup/rejection handling.
-    }
+        rules: { 'n/no-process-exit': 'off' }, // Preserve fatal startup/rejection handling.
+    },
 ];

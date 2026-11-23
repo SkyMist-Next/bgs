@@ -21,7 +21,7 @@ jobs:
     steps:
       - run: apt-get update -qq && apt-get install -y --no-install-recommends git ca-certificates
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: {fetch-depth: 0, persist-credentials: false}
+        with: { fetch-depth: 0, persist-credentials: false }
       - run: bash delivery/install-tools.sh
       - name: Test before publication
         run: bash delivery/test.sh

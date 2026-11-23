@@ -6,7 +6,7 @@ resourceSelector:
   deny:
     # Session labels must not restart the persistent Redis node.
     - groupKind: StatefulSet.apps
-      labels: ['.*']
+      labels: [".*"]
 build:
   local:
     push: false
@@ -43,5 +43,5 @@ deploy:
           gateway.className: bgs-test-envoy
           webAuthUrl: https://bgs.local:8443/bnetserver/login/
         setValueTemplates:
-          image.repository: '{{.IMAGE_REPO_bgs}}'
-          image.tag: '{{.IMAGE_TAG_bgs}}'
+          image.repository: "{{.IMAGE_REPO_bgs}}"
+          image.tag: "{{.IMAGE_TAG_bgs}}"

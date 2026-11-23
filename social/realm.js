@@ -11,46 +11,96 @@ class SocialRealm {
         this.authority = new RealmService(dependencies);
     }
     async execute(request, properties = {}) {
-        if (!['social.presence', 'social.call'].includes(request.operation)) { throw new Failure('UNSUPPORTED_OPERATION'); }
-        if (Date.now() > Date.parse(request.deadline)) { throw new Failure('DEADLINE_EXPIRED'); }
-        if (request.generation === '0') { throw new Failure('SESSION_NOT_OPEN'); }
+        if (!['social.presence', 'social.call'].includes(request.operation)) {
+            throw new Failure('UNSUPPORTED_OPERATION');
+        }
+        if (Date.now() > Date.parse(request.deadline)) {
+            throw new Failure('DEADLINE_EXPIRED');
+        }
+        if (request.generation === '0') {
+            throw new Failure('SESSION_NOT_OPEN');
+        }
         try {
             // Authorization fences the lease to this request's session, generation and realm process.
             const { lease } = await this.authority.authorizeSession(request);
             const owner = { ...lease };
             const routeEpoch = properties.headers?.social_route_epoch;
-            if (typeof routeEpoch !== 'string' || !/^[1-9][0-9]{0,19}$/.test(routeEpoch) ||
-                BigInt(routeEpoch) > 18446744073709551615n) { throw new Failure('INVALID_SOCIAL_ROUTE'); }
+            if (
+                typeof routeEpoch !== 'string' ||
+        !/^[1-9][0-9]{0,19}$/.test(routeEpoch) ||
+        BigInt(routeEpoch) > 18446744073709551615n
+            ) {
+                throw new Failure('INVALID_SOCIAL_ROUTE');
+            }
             owner.routeEpoch = routeEpoch;
-            try { await this.runtime.refreshWorldRoute(owner, properties.replyTo); }
-            catch (error) {
-                if (error === 0xA) { throw new Failure('STALE_SOCIAL_ROUTE'); }
-                if (error === 0xBC5 || error === 0xBC6) { throw new Failure('INVALID_SOCIAL_ROUTE'); }
+            try {
+                await this.runtime.refreshWorldRoute(owner, properties.replyTo);
+            } catch (error) {
+                if (error === 0xa) {
+                    throw new Failure('STALE_SOCIAL_ROUTE');
+                }
+                if (error === 0xbc5 || error === 0xbc6) {
+                    throw new Failure('INVALID_SOCIAL_ROUTE');
+                }
                 throw error;
             }
             let result, afterReply;
             if (request.operation === 'social.presence') {
                 result = await this.worldPresence.publish(owner, request.arguments);
             } else {
-                if (owner.build !== 26972) { throw new Failure('UNSUPPORTED_BUILD'); }
-                const args = request.arguments, service = this.services.get(args.service_hash);
-                if (!service || service.legacyOnly) { throw new Failure('UNSUPPORTED_SOCIAL_SERVICE'); }
-                const context = { requestId: request.request_id, header: { serviceId: 0, serviceHash: service.getServiceHash(),
-                    methodId: args.method_id, objectId: args.object_id, token: 0 }, queueName: properties.replyTo };
+                if (owner.build !== 26972) {
+                    throw new Failure('UNSUPPORTED_BUILD');
+                }
+                const args = request.arguments,
+                    service = this.services.get(args.service_hash);
+                if (!service || service.legacyOnly) {
+                    throw new Failure('UNSUPPORTED_SOCIAL_SERVICE');
+                }
+                const context = {
+                    requestId: request.request_id,
+                    header: {
+                        serviceId: 0,
+                        serviceHash: service.getServiceHash(),
+                        methodId: args.method_id,
+                        objectId: args.object_id,
+                        token: 0,
+                    },
+                    queueName: properties.replyTo,
+                };
                 this.runtime.worldContext(context, owner, properties.replyTo);
-                const response = await service.handleCall(context, Buffer.from(args.payload, 'base64'));
+                const response = await service.handleCall(
+                    context,
+                    Buffer.from(args.payload, 'base64'),
+                );
                 if (response) {
-                    const length = response.readUInt16BE(0), header = Header.decode(response.subarray(2, 2 + length));
-                    if (response.length - 2 - length > 1048576) { throw new Failure('SOCIAL_PAYLOAD_TOO_LARGE'); }
-                    result = { status: header.status, payload: response.subarray(2 + length).toString('base64') };
-                } else { result = { status: 0, payload: '' }; }
+                    const length = response.readUInt16BE(0),
+                        header = Header.decode(response.subarray(2, 2 + length));
+                    if (response.length - 2 - length > 1048576) {
+                        throw new Failure('SOCIAL_PAYLOAD_TOO_LARGE');
+                    }
+                    result = {
+                        status: header.status,
+                        payload: response.subarray(2 + length).toString('base64'),
+                    };
+                } else {
+                    result = { status: 0, payload: '' };
+                }
                 afterReply = context.afterReply;
             }
-            const response = { version: 1, request_id: request.request_id, status: 'success', result };
-            if (afterReply) { Object.defineProperty(response, 'afterReply', { value: afterReply }); }
+            const response = {
+                version: 1,
+                request_id: request.request_id,
+                status: 'success',
+                result,
+            };
+            if (afterReply) {
+                Object.defineProperty(response, 'afterReply', { value: afterReply });
+            }
             return response;
         } catch (error) {
-            if (error instanceof Failure) { throw error; }
+            if (error instanceof Failure) {
+                throw error;
+            }
             // This worker is separate from realm admission/persistence. Dependency
             // failures return a social rejection and do not poison gameplay health.
             throw new Failure('SOCIAL_UNAVAILABLE', true);

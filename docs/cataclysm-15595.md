@@ -46,7 +46,7 @@ Validation:
 - `npm test` and `npm run lint` cover both protocol paths, persisted identity,
   malformed dispatch, proof failures, collisions, supersession, and replay.
 - `CATACLYSM_TEST=1 CATACLYSM_TEST_DB_PORT=<isolated MariaDB port>
-  CATACLYSM_TEST_REDIS_PORT=<isolated Redis port> node scripts/cataclysm-integration.js`
+CATACLYSM_TEST_REDIS_PORT=<isolated Redis port> node scripts/cataclysm-integration.js`
   creates a random database and scoped Redis keys, exercising real migration,
   trigger, concurrent allocation and atomic claim behavior. The script requires
   the documented local fixture credentials in its source; do not target shared

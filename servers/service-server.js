@@ -11,17 +11,30 @@ class ServiceServer extends BaseServer {
 
     async onStart(dependencies, signal) {
         signal.throwIfAborted();
-        const Service = this.Service || require('../services/' + this.config.service);
+        const Service =
+            this.Service || require('../services/' + this.config.service);
         this.service = new Service(dependencies);
-        const options = { ...dependencies, signal, isAccepting: () => this.isAccepting(), onFatal: error => this.stop(error) };
+        const options = {
+            ...dependencies,
+            signal,
+            isAccepting: () => this.isAccepting(),
+            onFatal: (error) => this.stop(error),
+        };
         this.receiver = this.factories.receiver
-            ? this.factories.receiver(this.service, options) : new ServiceReceiver(this.service, options);
+            ? this.factories.receiver(this.service, options)
+            : new ServiceReceiver(this.service, options);
         await this.receiver.start();
     }
 
-    onStopAccepting() { return this.receiver?.stopAccepting(); }
-    async onDrain() { await this.receiver?.drain(); }
-    async onForceClose() { await this.receiver?.forceClose(); }
+    onStopAccepting() {
+        return this.receiver?.stopAccepting();
+    }
+    async onDrain() {
+        await this.receiver?.drain();
+    }
+    async onForceClose() {
+        await this.receiver?.forceClose();
+    }
 }
 
 module.exports = ServiceServer;

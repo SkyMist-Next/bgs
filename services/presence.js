@@ -7,17 +7,39 @@ const presence = require('../social/presence-wire');
 const { sessionFor, gameEntity, storedId } = require('../social/friends-wire');
 const { registerSocialHandlers } = require('../social/errors');
 const { blocked } = require('../utils/admin-state');
-const entity = value => ({ high: value.high.toString(), low: value.low.toString() });
+const entity = (value) => ({
+    high: value.high.toString(),
+    low: value.low.toString(),
+});
 const microseconds = () => (BigInt(Date.now()) * 1000n).toString();
 
 class PresenceService extends Service {
     constructor(dependencies) {
-        super('PresenceService', 'proto/bgs/low/pb/client/presence_service.proto', dependencies);
-        this.runtime = dependencies.runtime; this.models = dependencies.models; this.worldPresence = dependencies.worldPresence;
-        this.runtime.register('presence', { snapshot: (session, row) => this.project(session, row), diff: presence.diff });
+        super(
+            'PresenceService',
+            'proto/bgs/low/pb/client/presence_service.proto',
+            dependencies,
+        );
+        this.runtime = dependencies.runtime;
+        this.models = dependencies.models;
+        this.worldPresence = dependencies.worldPresence;
+        this.runtime.register('presence', {
+            snapshot: (session, row) => this.project(session, row),
+            diff: presence.diff,
+        });
         // Ownership rows bind the selected license to the authenticated connection. They produce no events.
-        this.runtime.register('presence-owner', { snapshot: async () => ({}), diff: () => [] });
-        registerSocialHandlers(this, ['Subscribe', 'Unsubscribe', 'Query', 'Update', 'Ownership', 'SubscribeNotification']);
+        this.runtime.register('presence-owner', {
+            snapshot: async () => ({}),
+            diff: () => [],
+        });
+        registerSocialHandlers(this, [
+            'Subscribe',
+            'Unsubscribe',
+            'Query',
+            'Update',
+            'Ownership',
+            'SubscribeNotification',
+        ]);
     }
     async resolve(value) {
         if (value?.high?.toString() === wire.ACCOUNT_HIGH) {
@@ -25,159 +47,333 @@ class PresenceService extends Service {
             return { subject: 'a:' + id, accountId: id, entity: entity(value) };
         }
         const game = await gameEntity(this.models, value);
-        return { subject: 'g:' + storedId(game.id), accountId: storedId(game.accountId), game, entity: entity(game.entityId) };
+        return {
+            subject: 'g:' + storedId(game.id),
+            accountId: storedId(game.accountId),
+            game,
+            entity: entity(game.entityId),
+        };
     }
     async access(session, target) {
         if (session.accountId !== target.accountId) {
-            if (await this.runtime.sessionBlocked(session.sessionKey, target.accountId)) { throw 0x1391; }
-            await this.runtime.graph.assertAccess(session.accountId, target.accountId, 'presence');
+            if (
+                await this.runtime.sessionBlocked(session.sessionKey, target.accountId)
+            ) {
+                throw 0x1391;
+            }
+            await this.runtime.graph.assertAccess(
+                session.accountId,
+                target.accountId,
+                'presence',
+            );
         }
     }
     filter(request) {
-        if ((request.key?.length || 0) > 128 || (request.program?.length || 0) > 16) { throw 0x7; }
-        return { program: request.program || [], keys: (request.key || []).map(key => ({ program: key.program,
-            group: key.group, field: key.field, uniqueId: wire.uint64(key.uniqueId) })) };
+        if (
+            (request.key?.length || 0) > 128 ||
+      (request.program?.length || 0) > 16
+        ) {
+            throw 0x7;
+        }
+        return {
+            program: request.program || [],
+            keys: (request.key || []).map((key) => ({
+                program: key.program,
+                group: key.group,
+                field: key.field,
+                uniqueId: wire.uint64(key.uniqueId),
+            })),
+        };
     }
     async state(target, online, changes) {
-        return this.models.sequelize.transaction(async transaction => {
-            await this.models.Account.findByPk(target.accountId, { transaction, lock: transaction.LOCK.UPDATE });
-            const row = await this.models.SocialPresenceState.findByPk(target.subject, { transaction });
+        return this.models.sequelize.transaction(async (transaction) => {
+            await this.models.Account.findByPk(target.accountId, {
+                transaction,
+                lock: transaction.LOCK.UPDATE,
+            });
+            const row = await this.models.SocialPresenceState.findByPk(
+                target.subject,
+                { transaction },
+            );
             const previous = row ? json(row.values) : {};
             const values = { ...previous };
             if (online !== undefined && values.online !== online) {
                 values.online = online;
-                if (online) { values.onlineTime = microseconds(); }
-                else { values.lastOnline = microseconds(); }
+                if (online) {
+                    values.onlineTime = microseconds();
+                } else {
+                    values.lastOnline = microseconds();
+                }
             }
             Object.assign(values, changes);
-            if (!row) { await this.models.SocialPresenceState.create({ subject: target.subject, accountId: target.accountId, values }, { transaction }); }
-            else if (JSON.stringify(previous) !== JSON.stringify(values)) { await row.update({ values }, { transaction }); }
+            if (!row) {
+                await this.models.SocialPresenceState.create(
+                    { subject: target.subject, accountId: target.accountId, values },
+                    { transaction },
+                );
+            } else if (JSON.stringify(previous) !== JSON.stringify(values)) {
+                await row.update({ values }, { transaction });
+            }
             return values;
         });
     }
     // Owning a game account's presence selects it for this session and keeps it online.
     async owned(session, target) {
-        if (target.accountId !== session.accountId || session.gameAccountId && target.game && storedId(target.game.id) !== session.gameAccountId) { throw 0xA; }
-        if (target.game && blocked(target.game)) { throw 0xA; }
+        if (
+            target.accountId !== session.accountId ||
+      (session.gameAccountId &&
+        target.game &&
+        storedId(target.game.id) !== session.gameAccountId)
+        ) {
+            throw 0xa;
+        }
+        if (target.game && blocked(target.game)) {
+            throw 0xa;
+        }
         if (target.game) {
             await session.selectGame(storedId(target.game.id));
             await session.subscribe('presence-owner', target.subject, '0', {}, {});
         }
     }
     async gameOnline(game) {
-        if (blocked(game)) { return { online: false, character: null }; }
+        if (blocked(game)) {
+            return { online: false, character: null };
+        }
         const gameId = storedId(game.id);
         const world = await this.worldPresence.session(gameId);
         const record = world ? await this.worldPresence.get(gameId) : null;
-        if (world) { return { online: true, character: record?.character || null }; }
-        const rows = await this.models.SocialSubscription.findAll({ where: { target: 'g:' + gameId, kind: 'presence-owner', ready: true }, limit: 65, raw: true });
-        if (rows.length > 64) { throw 0x25; }
+        if (world) {
+            return { online: true, character: record?.character || null };
+        }
+        const rows = await this.models.SocialSubscription.findAll({
+            where: { target: 'g:' + gameId, kind: 'presence-owner', ready: true },
+            limit: 65,
+            raw: true,
+        });
+        if (rows.length > 64) {
+            throw 0x25;
+        }
         for (const row of rows) {
-            if (await this.runtime.current(json(row.route), storedId(game.accountId))) { return { online: true, character: null }; }
+            if (
+                await this.runtime.current(json(row.route), storedId(game.accountId))
+            ) {
+                return { online: true, character: null };
+            }
         }
         return { online: false, character: null };
     }
     async fields(session, target) {
-        const f = (number, value, uniqueId) => presence.field(presence.BN, target.game ? 2 : 1, number, value, uniqueId);
+        const f = (number, value, uniqueId) =>
+            presence.field(presence.BN, target.game ? 2 : 1, number, value, uniqueId);
         if (!target.game) {
             const profile = await this.models.Account.findByPk(target.accountId);
-            if (blocked(profile)) { return []; }
-            const projection = await this.runtime.graph.project(session.accountId, target.accountId);
-            if (!projection) { return []; }
-            const games = await this.models.GameAccount.findAll({ where: { accountId: target.accountId }, order: [['id', 'ASC']], limit: 257 });
-            if (games.length > 256) { throw 0x25; }
+            if (blocked(profile)) {
+                return [];
+            }
+            const projection = await this.runtime.graph.project(
+                session.accountId,
+                target.accountId,
+            );
+            if (!projection) {
+                return [];
+            }
+            const games = await this.models.GameAccount.findAll({
+                where: { accountId: target.accountId },
+                order: [['id', 'ASC']],
+                limit: 257,
+            });
+            if (games.length > 256) {
+                throw 0x25;
+            }
             const onlineGames = [];
-            for (const game of games) { if ((await this.gameOnline(game)).online) { onlineGames.push(game); } }
-            const online = onlineGames.length > 0 || (await this.runtime.recipients(target.accountId, 'friends')).length > 0;
+            for (const game of games) {
+                if ((await this.gameOnline(game)).online) {
+                    onlineGames.push(game);
+                }
+            }
+            const online =
+                onlineGames.length > 0 ||
+        (await this.runtime.recipients(target.accountId, 'friends')).length > 0;
             const values = await this.state(target, online);
-            const fields = [f(1, { stringValue: projection.fullName }),
-                f(2, { stringValue: values.broadcast || '' }), f(4, { stringValue: profile.battleTag }),
-                f(5, { intValue: values.broadcastTime || '0' }), f(6, { intValue: values.lastOnline || '0' }),
-                f(7, { boolValue: online && Boolean(values.afk) }), f(11, { boolValue: online && Boolean(values.dnd) })];
-            for (const game of onlineGames) { fields.push(f(3, { entityIdValue: entity(game.entityId) }, storedId(game.id))); }
+            const fields = [
+                f(1, { stringValue: projection.fullName }),
+                f(2, { stringValue: values.broadcast || '' }),
+                f(4, { stringValue: profile.battleTag }),
+                f(5, { intValue: values.broadcastTime || '0' }),
+                f(6, { intValue: values.lastOnline || '0' }),
+                f(7, { boolValue: online && Boolean(values.afk) }),
+                f(11, { boolValue: online && Boolean(values.dnd) }),
+            ];
+            for (const game of onlineGames) {
+                fields.push(
+                    f(3, { entityIdValue: entity(game.entityId) }, storedId(game.id)),
+                );
+            }
             return fields;
         }
         const live = await this.gameOnline(target.game);
         const values = await this.state(target, live.online);
-        const parent = await this.state({ subject: 'a:' + target.accountId, accountId: target.accountId });
-        const fields = [f(1, { boolValue: live.online }), f(2, { intValue: live.online && (values.dnd ?? parent.dnd) ? '1' : '0' }),
+        const parent = await this.state({
+            subject: 'a:' + target.accountId,
+            accountId: target.accountId,
+        });
+        const fields = [
+            f(1, { boolValue: live.online }),
+            f(2, { intValue: live.online && (values.dnd ?? parent.dnd) ? '1' : '0' }),
             f(7, { entityIdValue: entity(wire.account(target.accountId)) }),
-            f(10, { boolValue: live.online && Boolean(values.afk ?? parent.afk) })];
-        if (live.character) { fields.push(...this.characterFields(live.character)); }
+            f(10, { boolValue: live.online && Boolean(values.afk ?? parent.afk) }),
+        ];
+        if (live.character) {
+            fields.push(...this.characterFields(live.character));
+        }
         return fields;
     }
     characterFields(character) {
-        const field = (number, value) => presence.field(presence.WOW, 2, number, value);
+        const field = (number, value) =>
+            presence.field(presence.WOW, 2, number, value);
         // 26972 reads these individually (0x140D358E0) and resolves names in its
         // own realm/DB2 caches (0x140A57CE0). The GUID field is explicitly uint64;
         // the client reconstructs the player GUID using the realm ID separately.
-        return [field(1, { uintValue: String(character.realm_address) }),
-            field(2, { uintValue: String(character.race) }), field(3, { uintValue: String(character.class) }),
-            field(5, { uintValue: String(character.level) }), field(6, { uintValue: String(character.zone) }),
+        return [
+            field(1, { uintValue: String(character.realm_address) }),
+            field(2, { uintValue: String(character.race) }),
+            field(3, { uintValue: String(character.class) }),
+            field(5, { uintValue: String(character.level) }),
+            field(6, { uintValue: String(character.zone) }),
             field(7, { intValue: ['2', '4', '1'][character.faction] }),
-            field(10, { stringValue: character.name }), field(11, { uintValue: String(character.realm_address & 0xffff) }),
-            field(12, { uintValue: (BigInt(character.guid) & 0xffffffffffffffffn).toString() })];
+            field(10, { stringValue: character.name }),
+            field(11, { uintValue: String(character.realm_address & 0xffff) }),
+            field(12, {
+                uintValue: (BigInt(character.guid) & 0xffffffffffffffffn).toString(),
+            }),
+        ];
     }
     async project(session, row) {
         const target = await this.resolve(json(row.filter).entity);
         let fields;
-        try { await this.access(session, target); fields = await this.fields(session, target); }
-        catch (error) {
-            if (error !== 0x1391 && error.code !== 'BLOCKED' && error.code !== 'NOT_FRIENDS' && error.code !== 'ACCOUNT_NOT_FOUND') { throw error; }
+        try {
+            await this.access(session, target);
+            fields = await this.fields(session, target);
+        } catch (error) {
+            if (
+                error !== 0x1391 &&
+        error.code !== 'BLOCKED' &&
+        error.code !== 'NOT_FRIENDS' &&
+        error.code !== 'ACCOUNT_NOT_FOUND'
+            ) {
+                throw error;
+            }
             fields = []; // Withdraw every previously visible field when access is revoked.
         }
-        return { entity: target.entity, fields: presence.selected(fields, json(row.filter)) };
+        return {
+            entity: target.entity,
+            fields: presence.selected(fields, json(row.filter)),
+        };
     }
     async Subscribe(context) {
         const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
         await this.access(session, target);
         const objectId = wire.uint64(context.request.objectId);
-        if (session.accountId === target.accountId && target.game) { await this.owned(session, target); }
-        await session.subscribe('presence', target.subject, objectId, { ...this.filter(context.request), entity: target.entity });
+        if (session.accountId === target.accountId && target.game) {
+            await this.owned(session, target);
+        }
+        await session.subscribe('presence', target.subject, objectId, {
+            ...this.filter(context.request),
+            entity: target.entity,
+        });
         return 0;
     }
     async Unsubscribe(context) {
         const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        await session.unsubscribe('presence', target.subject,
-            Object.hasOwn(context.request, 'objectId') ? wire.uint64(context.request.objectId) : undefined);
+        await session.unsubscribe(
+            'presence',
+            target.subject,
+            Object.hasOwn(context.request, 'objectId')
+                ? wire.uint64(context.request.objectId)
+                : undefined,
+        );
         return 0;
     }
     async Query(context) {
         const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
         await this.access(session, target);
-        context.response.field = presence.selected(await this.fields(session, target), this.filter(context.request));
+        context.response.field = presence.selected(
+            await this.fields(session, target),
+            this.filter(context.request),
+        );
         return 0;
     }
     async Update(context) {
         const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        if (target.accountId !== session.accountId) { throw 0xA; }
+        if (target.accountId !== session.accountId) {
+            throw 0xa;
+        }
         const operations = context.request.fieldOperation || [];
-        if (!operations.length || operations.length > 16) { throw 0x7; }
+        if (!operations.length || operations.length > 16) {
+            throw 0x7;
+        }
         const changes = {};
         for (const operation of operations) {
             const { key, value } = operation.field;
-            if (key.program !== presence.BN || key.group !== (target.game ? 2 : 1) || wire.uint64(key.uniqueId) !== '0' ||
-                operation.operation !== 0 && operation.operation !== 1) { throw 0xBC1; }
+            if (
+                key.program !== presence.BN ||
+        key.group !== (target.game ? 2 : 1) ||
+        wire.uint64(key.uniqueId) !== '0' ||
+        (operation.operation !== 0 && operation.operation !== 1)
+            ) {
+                throw 0xbc1;
+            }
             const clear = operation.operation === 1;
             if (!target.game && key.field === 2) {
-                if (!clear && (Object.keys(value).length !== 1 || !Object.hasOwn(value, 'stringValue'))) { throw 0x7; }
+                if (
+                    !clear &&
+          (Object.keys(value).length !== 1 ||
+            !Object.hasOwn(value, 'stringValue'))
+                ) {
+                    throw 0x7;
+                }
                 const message = clear ? '' : wire.text(value.stringValue, 508);
-                if (!message.isWellFormed() || [...message].length > 127) { throw 0x7; }
-                changes.broadcast = message; changes.broadcastTime = microseconds();
-            } else if ((!target.game && [7, 11].includes(key.field)) || (target.game && key.field === 10)) {
-                if (!clear && (Object.keys(value).length !== 1 || !Object.hasOwn(value, 'boolValue'))) { throw 0x7; }
+                if (!message.isWellFormed() || [...message].length > 127) {
+                    throw 0x7;
+                }
+                changes.broadcast = message;
+                changes.broadcastTime = microseconds();
+            } else if (
+                (!target.game && [7, 11].includes(key.field)) ||
+        (target.game && key.field === 10)
+            ) {
+                if (
+                    !clear &&
+          (Object.keys(value).length !== 1 ||
+            !Object.hasOwn(value, 'boolValue'))
+                ) {
+                    throw 0x7;
+                }
                 const name = key.field === 11 ? 'dnd' : 'afk';
                 changes[name] = !clear && value.boolValue;
-                if (changes[name]) { changes[name === 'afk' ? 'dnd' : 'afk'] = false; }
+                if (changes[name]) {
+                    changes[name === 'afk' ? 'dnd' : 'afk'] = false;
+                }
             } else if (target.game && key.field === 2) {
-                if (!clear && (Object.keys(value).length !== 1 || !Object.hasOwn(value, 'intValue') || !['0', '1'].includes(value.intValue.toString()))) { throw 0x7; }
+                if (
+                    !clear &&
+          (Object.keys(value).length !== 1 ||
+            !Object.hasOwn(value, 'intValue') ||
+            !['0', '1'].includes(value.intValue.toString()))
+                ) {
+                    throw 0x7;
+                }
                 changes.dnd = !clear && value.intValue.toString() === '1';
-                if (changes.dnd) { changes.afk = false; }
-            } else { throw 0xBC1; } // Identity, online state and active character are server-owned.
+                if (changes.dnd) {
+                    changes.afk = false;
+                }
+            } else {
+                throw 0xbc1;
+            } // Identity, online state and active character are server-owned.
         }
         await this.owned(session, target);
         await this.state(target, undefined, changes);
@@ -186,9 +382,14 @@ class PresenceService extends Service {
     async Ownership(context) {
         const session = await sessionFor(this.runtime, this.models, context);
         const target = await this.resolve(context.request.entityId);
-        if (target.accountId !== session.accountId) { throw 0xA; }
-        if (context.request.releaseOwnership) { await session.unsubscribe('presence-owner', target.subject); }
-        else { await this.owned(session, target); }
+        if (target.accountId !== session.accountId) {
+            throw 0xa;
+        }
+        if (context.request.releaseOwnership) {
+            await session.unsubscribe('presence-owner', target.subject);
+        } else {
+            await this.owned(session, target);
+        }
         return 0;
     }
     async SubscribeNotification(context) {

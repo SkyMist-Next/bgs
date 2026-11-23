@@ -7,9 +7,16 @@ function waitForDrain(stream) {
             stream.removeListener('close', closed);
             stream.removeListener('error', failed);
         };
-        const drained = () => { cleanup(); resolve(); };
-        const failed = error => { cleanup(); reject(error); };
-        const closed = () => failed(new Error('Transport closed while waiting for drain'));
+        const drained = () => {
+            cleanup();
+            resolve();
+        };
+        const failed = (error) => {
+            cleanup();
+            reject(error);
+        };
+        const closed = () =>
+            failed(new Error('Transport closed while waiting for drain'));
         stream.once('drain', drained);
         stream.once('close', closed);
         stream.once('error', failed);

@@ -1,5 +1,3 @@
 'use strict';
 
-module.exports = class Sender{
-
-};
+module.exports = class Sender {};

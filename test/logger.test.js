@@ -8,11 +8,21 @@ const os = require('node:os');
 const path = require('node:path');
 const createLogger = require('../utils/logger');
 
-test('Winston writes structured messages and error stacks with configured file options', async t => {
+test('Winston writes structured messages and error stacks with configured file options', async (t) => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bgs-logger-'));
     t.after(() => fs.rm(directory, { recursive: true, force: true }));
     const filename = path.join(directory, 'service.log');
-    const logger = createLogger({ filename, level: 'debug', maxsize: 4096, maxFiles: 3, tailable: true, json: true }, 'production');
+    const logger = createLogger(
+        {
+            filename,
+            level: 'debug',
+            maxsize: 4096,
+            maxFiles: 3,
+            tailable: true,
+            json: true,
+        },
+        'production',
+    );
     t.after(() => logger.close());
     const transport = logger.transports[0];
     assert.equal(transport.maxsize, 4096);
@@ -23,7 +33,10 @@ test('Winston writes structured messages and error stacks with configured file o
     const finished = once(logger, 'finish');
     logger.end();
     await finished;
-    const lines = (await fs.readFile(filename, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    const lines = (await fs.readFile(filename, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
     assert.equal(lines[0].message, 'database query');
     assert.equal(lines[0].level, 'debug');
     assert.ok(lines[0].timestamp);
@@ -31,13 +44,18 @@ test('Winston writes structured messages and error stacks with configured file o
     assert.match(lines[1].stack, /Error: dependency failed\n\s+at /);
 });
 
-test('plain file formatting and development console retain debug output and stacks', async t => {
+test('plain file formatting and development console retain debug output and stacks', async (t) => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'bgs-logger-'));
     t.after(() => fs.rm(directory, { recursive: true, force: true }));
     const filename = path.join(directory, 'plain.log');
-    const logger = createLogger({ filename, level: 'error', json: false, timestamp: false }, 'development');
+    const logger = createLogger(
+        { filename, level: 'error', json: false, timestamp: false },
+        'development',
+    );
     t.after(() => logger.close());
-    const consoleTransport = logger.transports.find(transport => transport.name === 'console');
+    const consoleTransport = logger.transports.find(
+        (transport) => transport.name === 'console',
+    );
     assert.equal(consoleTransport.level, 'debug');
     const output = [];
     // Capture the formatted Console transport output without writing to the test runner.
@@ -52,5 +70,8 @@ test('plain file formatting and development console retain debug output and stac
     await finished;
     assert.match(output[0], /debug.*console debug/);
     assert.match(output[1], /Error: plain error/);
-    assert.match(await fs.readFile(filename, 'utf8'), /^error: Error: plain error\n\s+at /);
+    assert.match(
+        await fs.readFile(filename, 'utf8'),
+        /^error: Error: plain error\n\s+at /,
+    );
 });

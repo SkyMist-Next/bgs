@@ -120,10 +120,10 @@ groups: direct/world subscriptions, bilateral friendships, character presence,
 both-way whispers, Runtime restart with persisted subscriptions/outbox, and
 stale-generation rejection/cleanup. The three-client flow is described above.
 
-| Environment | Run ID | Result and evidence |
-| --- | --- | --- |
-| Initial serial host run, loopback ports 33317–33320 | `7b7c127e6f21` | All scenarios passed. Independent read-only checks confirmed removal of the database, tracked Redis keys, both vhosts and both broker principals. |
-| Main's serial host rerun, same ports | `6161858923b6` | All scenarios passed; cleanup completed; no reconciliation warnings. [Host log](../../.validation/social/integration-host.log). |
+| Environment                                          | Run ID         | Result and evidence                                                                                                                                                                     |
+| ---------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Initial serial host run, loopback ports 33317–33320  | `7b7c127e6f21` | All scenarios passed. Independent read-only checks confirmed removal of the database, tracked Redis keys, both vhosts and both broker principals.                                       |
+| Main's serial host rerun, same ports                 | `6161858923b6` | All scenarios passed; cleanup completed; no reconciliation warnings. [Host log](../../.validation/social/integration-host.log).                                                         |
 | Minikube Job, real SQL/Redis/RabbitMQ inside the Pod | `4091bbc4750c` | All scenarios passed; harness cleanup completed. [Integration log](../../.validation/social/minikube/integration.log), [Job result](../../.validation/social/minikube/job-result.json). |
 
 The Minikube Job `bgs-social-validation/social-integration` completed with one

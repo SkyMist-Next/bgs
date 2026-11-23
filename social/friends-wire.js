@@ -7,21 +7,31 @@ const INVITATION = '.bgs.protocol.friends.v1.FriendInvitation.friendInvitation';
 // The recovered client resolves these IDs by the advertised role NAME.
 const ROLES = Object.freeze([
     Object.freeze({ id: 1, name: 'battle_tag_friend' }),
-    Object.freeze({ id: 2, name: 'real_id_friend' })
+    Object.freeze({ id: 2, name: 'real_id_friend' }),
 ]);
 
 function role(kind) {
-    if (kind === 'battle_tag') { return 1; }
-    if (kind === 'real_id') { return 2; }
+    if (kind === 'battle_tag') {
+        return 1;
+    }
+    if (kind === 'real_id') {
+        return 2;
+    }
     throw new Error('Unknown semantic friendship kind');
 }
 function kind(value) {
-    if (value === 1) { return 'battle_tag'; }
-    if (value === 2) { return 'real_id'; }
+    if (value === 1) {
+        return 'battle_tag';
+    }
+    if (value === 2) {
+        return 'real_id';
+    }
     throw 0x1393; // ERROR_FRIENDS_INVALID_ROLE_ID
 }
 function storedId(value) {
-    if (typeof value === 'number' && !Number.isSafeInteger(value)) { throw new Error('Imprecise stored social identity'); }
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+        throw new Error('Imprecise stored social identity');
+    }
     return wire.id(String(value));
 }
 function friend(value, removed = false) {
@@ -33,8 +43,11 @@ function friend(value, removed = false) {
     return result;
 }
 function received(value, removed = false) {
-    const result = { id: value.invitationId, inviterIdentity: { accountId: wire.account(value.senderId) },
-        inviteeIdentity: { accountId: wire.account(value.recipientId) } };
+    const result = {
+        id: value.invitationId,
+        inviterIdentity: { accountId: wire.account(value.senderId) },
+        inviteeIdentity: { accountId: wire.account(value.recipientId) },
+    };
     if (!removed) {
         result.inviterName = value.peer.battleTag;
         result.invitationMessage = value.message;
@@ -43,51 +56,94 @@ function received(value, removed = false) {
     return result;
 }
 function sent(value) {
-    return { id: value.invitationId, targetName: value.peer.battleTag, role: role(value.kind) };
+    return {
+        id: value.invitationId,
+        targetName: value.peer.battleTag,
+        role: role(value.kind),
+    };
 }
 function blocked(value, removed = false) {
-    return { accountId: wire.account(value.accountId), ...(!removed ? { name: value.battleTag } : {}) };
+    return {
+        accountId: wire.account(value.accountId),
+        ...(!removed ? { name: value.battleTag } : {}),
+    };
 }
 function subscribe(snapshot, limits) {
     return {
-        maxFriends: limits.friends, maxReceivedInvitations: limits.invitations, maxSentInvitations: limits.invitations,
-        role: ROLES.map(value => ({ ...value })), friends: snapshot.friends.map(value => friend(value)),
-        receivedInvitations: snapshot.receivedInvitations.map(value => received(value)),
-        sentInvitations: snapshot.sentInvitations.map(sent)
+        maxFriends: limits.friends,
+        maxReceivedInvitations: limits.invitations,
+        maxSentInvitations: limits.invitations,
+        role: ROLES.map((value) => ({ ...value })),
+        friends: snapshot.friends.map((value) => friend(value)),
+        receivedInvitations: snapshot.receivedInvitations.map((value) =>
+            received(value),
+        ),
+        sentInvitations: snapshot.sentInvitations.map(sent),
     };
 }
 
 function friendsDiff(previous, next, row) {
     const frames = [];
     const accountId = wire.account(next.accountId);
-    const emit = (method, data) => frames.push(wire.notification('friends_service', 'FriendsListener', method,
-        String(row.objectId), { accountId, ...data }));
-    const prior = previous || { friends: [], receivedInvitations: [], sentInvitations: [] };
-    const oldFriends = new Map(prior.friends.map(value => [value.accountId, value]));
-    const newFriends = new Map(next.friends.map(value => [value.accountId, value]));
+    const emit = (method, data) =>
+        frames.push(
+            wire.notification(
+                'friends_service',
+                'FriendsListener',
+                method,
+                String(row.objectId),
+                { accountId, ...data },
+            ),
+        );
+    const prior = previous || {
+        friends: [],
+        receivedInvitations: [],
+        sentInvitations: [],
+    };
+    const oldFriends = new Map(
+        prior.friends.map((value) => [value.accountId, value]),
+    );
+    const newFriends = new Map(
+        next.friends.map((value) => [value.accountId, value]),
+    );
     for (const [id, value] of oldFriends) {
-        if (!newFriends.has(id)) { emit('OnFriendRemoved', { target: friend(value, true) }); }
+        if (!newFriends.has(id)) {
+            emit('OnFriendRemoved', { target: friend(value, true) });
+        }
     }
     for (const [id, value] of newFriends) {
         const before = oldFriends.get(id);
-        if (!before) { emit('OnFriendAdded', { target: friend(value) }); }
-        else if (before.kind !== value.kind || before.note !== value.note) {
+        if (!before) {
+            emit('OnFriendAdded', { target: friend(value) });
+        } else if (before.kind !== value.kind || before.note !== value.note) {
             emit('OnUpdateFriendState', { changedFriend: friend(value) });
         }
     }
     for (const direction of ['receivedInvitations', 'sentInvitations']) {
-        const oldRows = new Map(prior[direction].map(value => [value.invitationId, value]));
-        const newRows = new Map(next[direction].map(value => [value.invitationId, value]));
+        const oldRows = new Map(
+            prior[direction].map((value) => [value.invitationId, value]),
+        );
+        const newRows = new Map(
+            next[direction].map((value) => [value.invitationId, value]),
+        );
         for (const [id, value] of oldRows) {
             if (!newRows.has(id)) {
-                if (direction === 'receivedInvitations') { emit('OnReceivedInvitationRemoved', { invitation: received(value, true) }); }
-                else { emit('OnSentInvitationRemoved', { invitationId: id }); }
+                if (direction === 'receivedInvitations') {
+                    emit('OnReceivedInvitationRemoved', {
+                        invitation: received(value, true),
+                    });
+                } else {
+                    emit('OnSentInvitationRemoved', { invitationId: id });
+                }
             }
         }
         for (const [id, value] of newRows) {
             if (!oldRows.has(id)) {
-                if (direction === 'receivedInvitations') { emit('OnReceivedInvitationAdded', { invitation: received(value) }); }
-                else { emit('OnSentInvitationAdded', { invitation: sent(value) }); }
+                if (direction === 'receivedInvitations') {
+                    emit('OnReceivedInvitationAdded', { invitation: received(value) });
+                } else {
+                    emit('OnSentInvitationAdded', { invitation: sent(value) });
+                }
             }
         }
     }
@@ -96,16 +152,29 @@ function friendsDiff(previous, next, row) {
 
 function blocksDiff(previous, next, row) {
     const frames = [];
-    const before = new Map((previous?.blocks || []).map(value => [value.accountId, value]));
-    const after = new Map(next.blocks.map(value => [value.accountId, value]));
-    const emit = (method, player) => frames.push(wire.notification('user_manager_service', 'UserManagerListener', method,
-        String(row.objectId), { player, accountId: wire.account(next.accountId) }));
+    const before = new Map(
+        (previous?.blocks || []).map((value) => [value.accountId, value]),
+    );
+    const after = new Map(next.blocks.map((value) => [value.accountId, value]));
+    const emit = (method, player) =>
+        frames.push(
+            wire.notification(
+                'user_manager_service',
+                'UserManagerListener',
+                method,
+                String(row.objectId),
+                { player, accountId: wire.account(next.accountId) },
+            ),
+        );
     for (const [id, value] of before) {
-        if (!after.has(id)) { emit('OnBlockedPlayerRemoved', blocked(value, true)); }
+        if (!after.has(id)) {
+            emit('OnBlockedPlayerRemoved', blocked(value, true));
+        }
     }
     for (const [id, value] of after) {
-        if (!before.has(id)) { emit('OnBlockedPlayerAdded', blocked(value)); }
-        else if (before.get(id).battleTag !== value.battleTag) {
+        if (!before.has(id)) {
+            emit('OnBlockedPlayerAdded', blocked(value));
+        } else if (before.get(id).battleTag !== value.battleTag) {
             emit('OnBlockedPlayerRemoved', blocked(value, true));
             emit('OnBlockedPlayerAdded', blocked(value));
         }
@@ -115,21 +184,54 @@ function blocksDiff(previous, next, row) {
 
 async function gameEntity(models, entity, owner) {
     const game = await models.GameAccount.findByPk(wire.id(entity?.low));
-    if (!game || entity?.high?.toString() !== game.entityId.high.toString()) { throw 0x11; }
-    const accountId = storedId(game.accountId); const gameId = storedId(game.id);
-    if (owner && (accountId !== owner.accountId || (owner.gameAccountId && gameId !== owner.gameAccountId))) { throw 0xA; }
+    if (!game || entity?.high?.toString() !== game.entityId.high.toString()) {
+        throw 0x11;
+    }
+    const accountId = storedId(game.accountId);
+    const gameId = storedId(game.id);
+    if (
+        owner &&
+    (accountId !== owner.accountId ||
+      (owner.gameAccountId && gameId !== owner.gameAccountId))
+    ) {
+        throw 0xa;
+    }
     return game;
 }
 
 async function gameHandle(models, handle, owner) {
-    if (!handle || !Number.isInteger(handle.id) || handle.id <= 0 || handle.id > 0xffffffff ||
-        !Number.isInteger(handle.program) || handle.program < 0 || handle.program > 0xffffffff ||
-        !Number.isInteger(handle.region) || handle.region < 0 || handle.region > 0xff) { throw 0x11; }
+    if (
+        !handle ||
+    !Number.isInteger(handle.id) ||
+    handle.id <= 0 ||
+    handle.id > 0xffffffff ||
+    !Number.isInteger(handle.program) ||
+    handle.program < 0 ||
+    handle.program > 0xffffffff ||
+    !Number.isInteger(handle.region) ||
+    handle.region < 0 ||
+    handle.region > 0xff
+    ) {
+        throw 0x11;
+    }
     // The typed report contract has only a 32-bit handle. Never alias a wider game account by truncation.
     const game = await models.GameAccount.findByPk(String(handle.id));
-    if (!game || game.entityId.high.getLowBitsUnsigned() !== handle.program || game.region !== handle.region) { throw 0x11; }
-    const accountId = storedId(game.accountId); const gameId = storedId(game.id);
-    if (owner && (accountId !== owner.accountId || (owner.gameAccountId && gameId !== owner.gameAccountId))) { throw 0xA; }
+    if (
+        !game ||
+    game.entityId.high.getLowBitsUnsigned() !== handle.program ||
+    game.region !== handle.region
+    ) {
+        throw 0x11;
+    }
+    const accountId = storedId(game.accountId);
+    const gameId = storedId(game.id);
+    if (
+        owner &&
+    (accountId !== owner.accountId ||
+      (owner.gameAccountId && gameId !== owner.gameAccountId))
+    ) {
+        throw 0xa;
+    }
     return game;
 }
 
@@ -139,7 +241,11 @@ async function sessionFor(runtime, models, context) {
     const session = await runtime.session(context);
     wire.actor(context.request || {}, session);
     if (context.request?.agentIdentity?.gameAccountId) {
-        await gameEntity(models, context.request.agentIdentity.gameAccountId, session);
+        await gameEntity(
+            models,
+            context.request.agentIdentity.gameAccountId,
+            session,
+        );
     }
     return session;
 }
@@ -154,9 +260,31 @@ function deferReconcile(runtime, accountIds, context) {
     const after = context.afterReply;
     context.afterReply = async () => {
         await after?.();
-        await Promise.allSettled(accountIds.map(accountId => Promise.resolve().then(() => runtime.reconcile(accountId))));
+        await Promise.allSettled(
+            accountIds.map((accountId) =>
+                Promise.resolve().then(() => runtime.reconcile(accountId)),
+            ),
+        );
     };
 }
 
-module.exports = { PARAMS, INVITATION, ROLES, role, kind, storedId, friend, received, sent, blocked, subscribe,
-    friendsDiff, blocksDiff, gameEntity, gameHandle, sessionFor, reconcile, deferReconcile };
+module.exports = {
+    PARAMS,
+    INVITATION,
+    ROLES,
+    role,
+    kind,
+    storedId,
+    friend,
+    received,
+    sent,
+    blocked,
+    subscribe,
+    friendsDiff,
+    blocksDiff,
+    gameEntity,
+    gameHandle,
+    sessionFor,
+    reconcile,
+    deferReconcile,
+};

@@ -5,13 +5,26 @@ const express = require('express');
 const { blocked, checkIP } = require('./admin-state');
 const { metadata } = require('./authenticator');
 
-module.exports = function createRestApp({ models, store, logger, authenticator, isReady, isAccepting = () => true, compare = bcrypt.compare, track = operation => operation(), trustedProxyCIDRs = [], exposeHealth = true }) {
+module.exports = function createRestApp({
+    models,
+    store,
+    logger,
+    authenticator,
+    isReady,
+    isAccepting = () => true,
+    compare = bcrypt.compare,
+    track = (operation) => operation(),
+    trustedProxyCIDRs = [],
+    exposeHealth = true,
+}) {
     const rest = express();
     rest.use((req, res, next) => {
         const started = process.hrtime.bigint();
         let logged = false;
         const logRequest = () => {
-            if (logged) { return; }
+            if (logged) {
+                return;
+            }
             logged = true;
             // Only log route templates: raw paths and query strings can contain tickets.
             logger.info('REST request', {
@@ -20,7 +33,7 @@ module.exports = function createRestApp({ models, store, logger, authenticator, 
                 address: req.ip,
                 status: res.statusCode,
                 durationMs: Number(process.hrtime.bigint() - started) / 1e6,
-                aborted: !res.writableFinished
+                aborted: !res.writableFinished,
             });
         };
         res.once('finish', logRequest);
@@ -34,117 +47,196 @@ module.exports = function createRestApp({ models, store, logger, authenticator, 
 
     if (exposeHealth) {
         rest.get('/alive', (req, res) => res.sendStatus(200));
-        rest.get('/ready', async (req, res) => res.sendStatus(await isReady() ? 200 : 500));
+        rest.get('/ready', async (req, res) =>
+            res.sendStatus((await isReady()) ? 200 : 500),
+        );
     }
 
     rest.get('/bnetserver/login/:loginTicket', (req, res) => {
-        logger.debug('Received login form request for loginTicket: ' + req.params.loginTicket);
+        logger.debug(
+            'Received login form request for loginTicket: ' + req.params.loginTicket,
+        );
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.json({
-            'type': 'LOGIN_FORM',
-            'inputs': [{
-                'input_id': 'account_name',
-                'type': 'text',
-                'label': 'E-mail',
-                'max_length': 320
-            }, {
-                'input_id': 'password',
-                'type': 'password',
-                'label': 'Password',
-                'max_length': 16
-            }, {
-                'input_id': 'log_in_submit',
-                'type': 'submit',
-                'label': 'Log In'
-            }]
+            type: 'LOGIN_FORM',
+            inputs: [
+                {
+                    input_id: 'account_name',
+                    type: 'text',
+                    label: 'E-mail',
+                    max_length: 320,
+                },
+                {
+                    input_id: 'password',
+                    type: 'password',
+                    label: 'Password',
+                    max_length: 16,
+                },
+                {
+                    input_id: 'log_in_submit',
+                    type: 'submit',
+                    label: 'Log In',
+                },
+            ],
         });
     });
 
-    rest.post('/bnetserver/login/:loginTicket', (req, res) => track(async () => {
-        logger.debug('Received login request for loginTicket: ' + req.params.loginTicket);
-        const inputs = req.body && req.body.inputs;
+    rest.post('/bnetserver/login/:loginTicket', (req, res) =>
+        track(async () => {
+            logger.debug(
+                'Received login request for loginTicket: ' + req.params.loginTicket,
+            );
+            const inputs = req.body && req.body.inputs;
 
-        if (!Array.isArray(inputs) || inputs.some(input =>
-            !input || typeof input !== 'object' || typeof input.input_id !== 'string')) {
-            logger.debug('Received malformed login form data');
-            return res.sendStatus(400);
-        }
-
-        if (!isAccepting()) { return res.sendStatus(500); }
-
-        const ticket = await store.getLoginTicket(req.params.loginTicket);
-
-        if (!ticket) {
-            logger.debug('Received invalid login ticket: ' + req.params.loginTicket);
-            return res.sendStatus(500);
-        }
-
-        await checkIP(models, ticket.address);
-        const codes = inputs.filter(input => input.input_id === 'authenticator_token');
-
-        if (codes.length) {
-            if (codes.length !== 1 || inputs.length !== 1 || !/^[0-9]{8}$/.test(codes[0].value) || typeof codes[0].value !== 'string') {
+            if (
+                !Array.isArray(inputs) ||
+        inputs.some(
+            (input) =>
+                !input ||
+            typeof input !== 'object' ||
+            typeof input.input_id !== 'string',
+        )
+            ) {
+                logger.debug('Received malformed login form data');
                 return res.sendStatus(400);
             }
 
-            if (!ticket.authenticatorPending || !authenticator) { return res.json({ authentication_state: 'LOGIN' }); }
+            if (!isAccepting()) {
+                return res.sendStatus(500);
+            }
 
-            const pending = JSON.parse(ticket.authenticatorPending);
-            const account = await models.Account.findByPk(pending.accountId);
+            const ticket = await store.getLoginTicket(req.params.loginTicket);
 
-            if (blocked(account) || pending.expiresAt * 1000 <= Date.now()) { return res.json({ authentication_state: 'LOGIN' }); }
+            if (!ticket) {
+                logger.debug(
+                    'Received invalid login ticket: ' + req.params.loginTicket,
+                );
+                return res.sendStatus(500);
+            }
 
-            const proof = await authenticator.verify(account, pending, codes[0].value);
+            await checkIP(models, ticket.address);
+            const codes = inputs.filter(
+                (input) => input.input_id === 'authenticator_token',
+            );
 
-            if (!proof) { return res.json({ authentication_state: 'TOKEN' }); }
+            if (codes.length) {
+                if (
+                    codes.length !== 1 ||
+          inputs.length !== 1 ||
+          !/^[0-9]{8}$/.test(codes[0].value) ||
+          typeof codes[0].value !== 'string'
+                ) {
+                    return res.sendStatus(400);
+                }
 
-            await store.authorizeLoginTicket(req.params.loginTicket, account.id, proof, pending.challenge);
-            return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
-        }
+                if (!ticket.authenticatorPending || !authenticator) {
+                    return res.json({ authentication_state: 'LOGIN' });
+                }
 
-        const names = inputs.filter(input => input.input_id === 'account_name');
-        const passwords = inputs.filter(input => input.input_id === 'password');
+                const pending = JSON.parse(ticket.authenticatorPending);
+                const account = await models.Account.findByPk(pending.accountId);
 
-        if (names.length !== 1 || passwords.length !== 1 ||
-            typeof names[0].value !== 'string' || typeof passwords[0].value !== 'string' ||
-            !names[0].value || !passwords[0].value || Buffer.byteLength(passwords[0].value) > 72) {
-            return res.sendStatus(400);
-        }
+                if (blocked(account) || pending.expiresAt * 1000 <= Date.now()) {
+                    return res.json({ authentication_state: 'LOGIN' });
+                }
 
-        // The frontend records the client address; the HTTPS peer may be a gateway.
-        const account = await models.Account.findOne({ where: { email: names[0].value } });
+                const proof = await authenticator.verify(
+                    account,
+                    pending,
+                    codes[0].value,
+                );
 
-        if (blocked(account) || !await compare(passwords[0].value, account.hash)) {
-            logger.debug('Wrong password for account: ' + account.id);
-            return res.json({ authentication_state: 'LOGIN' });
-        }
+                if (!proof) {
+                    return res.json({ authentication_state: 'TOKEN' });
+                }
 
-        const state = metadata(account);
+                await store.authorizeLoginTicket(
+                    req.params.loginTicket,
+                    account.id,
+                    proof,
+                    pending.challenge,
+                );
+                return res.json({
+                    login_ticket: ticket.ticket,
+                    authentication_state: 'DONE',
+                });
+            }
 
-        if (state.authenticatorState === 2) {
-            if (!authenticator?.key) { throw new Error('Authenticator unavailable'); }
-            await store.beginAuthenticator(req.params.loginTicket, account.id, state);
-            return res.json({ authentication_state: 'TOKEN' });
-        }
+            const names = inputs.filter((input) => input.input_id === 'account_name');
+            const passwords = inputs.filter((input) => input.input_id === 'password');
 
-        await store.authorizeLoginTicket(req.params.loginTicket, account.id, state);
+            if (
+                names.length !== 1 ||
+        passwords.length !== 1 ||
+        typeof names[0].value !== 'string' ||
+        typeof passwords[0].value !== 'string' ||
+        !names[0].value ||
+        !passwords[0].value ||
+        Buffer.byteLength(passwords[0].value) > 72
+            ) {
+                return res.sendStatus(400);
+            }
 
-        return res.json({ login_ticket: ticket.ticket, authentication_state: 'DONE' });
-    }));
+            // The frontend records the client address; the HTTPS peer may be a gateway.
+            const account = await models.Account.findOne({
+                where: { email: names[0].value },
+            });
+
+            if (
+                blocked(account) ||
+        !(await compare(passwords[0].value, account.hash))
+            ) {
+                logger.debug('Wrong password for account: ' + account.id);
+                return res.json({ authentication_state: 'LOGIN' });
+            }
+
+            const state = metadata(account);
+
+            if (state.authenticatorState === 2) {
+                if (!authenticator?.key) {
+                    throw new Error('Authenticator unavailable');
+                }
+                await store.beginAuthenticator(
+                    req.params.loginTicket,
+                    account.id,
+                    state,
+                );
+                return res.json({ authentication_state: 'TOKEN' });
+            }
+
+            await store.authorizeLoginTicket(
+                req.params.loginTicket,
+                account.id,
+                state,
+            );
+
+            return res.json({
+                login_ticket: ticket.ticket,
+                authentication_state: 'DONE',
+            });
+        }),
+    );
 
     // Express 5 forwards rejected async handlers here, including dependency failures.
     rest.use((error, req, res, next) => {
         if (res.headersSent) {
             return next(error);
         }
-        if (error instanceof URIError || error.type === 'entity.parse.failed' || error.type === 'request.aborted' ||
-            error.type === 'request.size.invalid') {
+        if (
+            error instanceof URIError ||
+      error.type === 'entity.parse.failed' ||
+      error.type === 'request.aborted' ||
+      error.type === 'request.size.invalid'
+        ) {
             return res.sendStatus(400);
         }
         if (error.type === 'entity.too.large') {
             return res.sendStatus(413);
         }
-        if (error.type === 'charset.unsupported' || error.type === 'encoding.unsupported') {
+        if (
+            error.type === 'charset.unsupported' ||
+      error.type === 'encoding.unsupported'
+        ) {
             return res.sendStatus(415);
         }
         logger.error('Web authentication dependency failed');

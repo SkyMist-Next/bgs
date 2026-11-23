@@ -11,11 +11,22 @@ const { ClientSessions } = require('../utils/client-sessions');
 
 const rootNamespace = loadProto('proto/bgs/low/pb/client/rpc_types.proto');
 const ProcessId = rootNamespace.lookupType('bgs.protocol.ProcessId');
-const BindResponse = loadProto('proto/bgs/low/pb/client/connection_service.proto').lookupType('bgs.protocol.connection.v1.BindResponse');
+const BindResponse = loadProto(
+    'proto/bgs/low/pb/client/connection_service.proto',
+).lookupType('bgs.protocol.connection.v1.BindResponse');
 
 class ConnectionService extends Service {
-    constructor({ logger, store, amqpConnection, isAccepting = () => store.healthy }) {
-        super('ConnectionService', 'proto/bgs/low/pb/client/connection_service.proto', { logger });
+    constructor({
+        logger,
+        store,
+        amqpConnection,
+        isAccepting = () => store.healthy,
+    }) {
+        super(
+            'ConnectionService',
+            'proto/bgs/low/pb/client/connection_service.proto',
+            { logger },
+        );
         this.store = store;
         this.amqpConnection = amqpConnection;
         this.isAccepting = isAccepting;
@@ -28,43 +39,59 @@ class ConnectionService extends Service {
 
         this.registerHandler('Connect', this.Connect.bind(this));
         this.registerHandler('KeepAlive', this.KeepAlive.bind(this));
-        this.registerHandler('RequestDisconnect', this.RequestDisconnect.bind(this));
+        this.registerHandler(
+            'RequestDisconnect',
+            this.RequestDisconnect.bind(this),
+        );
     }
 
     Connect(context) {
-        return this.amqpConnection.createChannel().
-            then(async (channel) => {
+        return this.amqpConnection
+            .createChannel()
+            .then(async (channel) => {
                 if (context.connection.setAmqpChannel(channel) === false) {
                     await context.connection.disconnect();
                     throw new Error('Client disconnected during channel startup');
                 }
                 return Promise.resolve(channel);
-            }).
-            then((channel) => {
-                if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
-                return channel.assertQueue('', {autoDelete: true, exclusive: true, durable: false});
-            }).
-            then((result) => {
-                if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
+            })
+            .then((channel) => {
+                if (this.stopping || context.connection.disconnected) {
+                    throw new Error('Client connection stopping');
+                }
+                return channel.assertQueue('', {
+                    autoDelete: true,
+                    exclusive: true,
+                    durable: false,
+                });
+            })
+            .then((result) => {
+                if (this.stopping || context.connection.disconnected) {
+                    throw new Error('Client connection stopping');
+                }
                 context.connection.setAmqpQueueName(result.queue);
                 return context.connection.setupConsumer();
-            }).
-            then(async ()=> {
-                if (this.stopping || context.connection.disconnected) { throw new Error('Client connection stopping'); }
-                if(context.request.clientId !== null) {
+            })
+            .then(async () => {
+                if (this.stopping || context.connection.disconnected) {
+                    throw new Error('Client connection stopping');
+                }
+                if (context.request.clientId !== null) {
                     context.connection.setClientId(context.request.clientId);
                     context.response.clientId = context.request.clientId;
                 }
 
                 // use_bindless_rpc defaults to true in ConnectRequest.
-                context.connection.setBindlessRPC(context.request.useBindlessRpc !== false);
+                context.connection.setBindlessRPC(
+                    context.request.useBindlessRpc !== false,
+                );
 
                 const registered = [];
                 const services = await this.store.listMetadata('/aurora/services/');
                 for (const [path, value] of Object.entries(services)) {
                     if (/^\/aurora\/services\/[^/]+\/hash$/.test(path)) {
                         const hash = Number(value);
-                        if (!Number.isInteger(hash) || hash < 0 || hash > 0xFFFFFFFF) {
+                        if (!Number.isInteger(hash) || hash < 0 || hash > 0xffffffff) {
                             throw new Error('Invalid registered service hash');
                         }
                         registered.push(hash);
@@ -72,7 +99,9 @@ class ConnectionService extends Service {
                 }
 
                 if (context.connection.getBindlessRPC()) {
-                    for (const hash of registered) { context.connection.exportedServiceAdd(hash); }
+                    for (const hash of registered) {
+                        context.connection.exportedServiceAdd(hash);
+                    }
                 }
 
                 context.response.serverId = ProcessId.create();
@@ -82,20 +111,24 @@ class ConnectionService extends Service {
                 context.response.useBindlessRpc = context.connection.getBindlessRPC();
 
                 if (!context.connection.getBindlessRPC()) {
-                    const assigned = context.connection.bind(context.request.bindRequest, new Set(registered));
+                    const assigned = context.connection.bind(
+                        context.request.bindRequest,
+                        new Set(registered),
+                    );
                     if (assigned.length) {
-                        context.response.bindResponse = BindResponse.create({ importedServiceId: assigned });
+                        context.response.bindResponse = BindResponse.create({
+                            importedServiceId: assigned,
+                        });
                     }
                     context.response.bindResult = 0;
                 }
 
                 return Promise.resolve(0);
-            }).
-            catch((error) => {
+            })
+            .catch((error) => {
                 if (Number.isInteger(error)) {
                     return Promise.reject(error);
-                }
-                else {
+                } else {
                     this.logger.error(error);
                     return Promise.reject(0x1); //fill with error
                 }
@@ -111,23 +144,39 @@ class ConnectionService extends Service {
     }
 
     async RequestDisconnect(context) {
-        this.logger.debug('Client requested disconnect with code: '+context.request.errorCode);
+        this.logger.debug(
+            'Client requested disconnect with code: ' + context.request.errorCode,
+        );
         await this.sessions.end(context.connection.identity.connectionId);
         context.connection.disconnect();
 
         return Promise.resolve(0);
     }
 
-    stopAccepting() { this.stopping = true; }
+    stopAccepting() {
+        this.stopping = true;
+    }
 
     async drain() {
         this.stopAccepting();
-        while (!this.forced && (this.pending.size || this.connections.some(connection =>
-            !connection.disconnected && (connection.inFlight || connection.output.size || connection.brokerOutput.size || connection.socket.writableLength)))) {
-            await new Promise(resolve => setTimeout(resolve, 10));
+        while (
+            !this.forced &&
+      (this.pending.size ||
+        this.connections.some(
+            (connection) =>
+                !connection.disconnected &&
+            (connection.inFlight ||
+              connection.output.size ||
+              connection.brokerOutput.size ||
+              connection.socket.writableLength),
+        ))
+        ) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
         }
         await this.closeAllConnections();
-        while (this.closing.size) { await Promise.allSettled([...this.closing]); }
+        while (this.closing.size) {
+            await Promise.allSettled([...this.closing]);
+        }
     }
 
     forceClose() {
@@ -136,24 +185,34 @@ class ConnectionService extends Service {
     }
 
     closeAllConnections() {
-        return Promise.allSettled(this.connections.map(connection => connection.disconnect()));
+        return Promise.allSettled(
+            this.connections.map((connection) => connection.disconnect()),
+        );
     }
 
     onNewConnection(socket) {
         this.logger.debug('Received new connection from: ' + socket.remoteAddress);
 
-        if (this.stopping || !this.isAccepting()) { socket.destroy(); return; }
+        if (this.stopping || !this.isAccepting()) {
+            socket.destroy();
+            return;
+        }
         let connection = new Connection(socket, {
-            logger: this.logger, serviceHash: this.getServiceHash(), serviceName: this.getServiceName(),
-            onMessage: this.onMessage.bind(this), isAccepting: () => !this.stopping && this.isAccepting()
+            logger: this.logger,
+            serviceHash: this.getServiceHash(),
+            serviceName: this.getServiceName(),
+            onMessage: this.onMessage.bind(this),
+            isAccepting: () => !this.stopping && this.isAccepting(),
         });
         socket.once('close', () => {
             // Expiry remains the fallback during an unavailable Redis primary.
-            void Promise.resolve().then(() => this.sessions.end(connection.identity.connectionId)).catch(() => {});
+            void Promise.resolve()
+                .then(() => this.sessions.end(connection.identity.connectionId))
+                .catch(() => {});
             const closing = connection.disconnect();
             this.closing.add(closing);
             closing.finally(() => this.closing.delete(closing));
-            this.connections = this.connections.filter(item => item !== connection);
+            this.connections = this.connections.filter((item) => item !== connection);
         });
 
         this.connections.push(connection);
@@ -164,18 +223,23 @@ class ConnectionService extends Service {
             connection: connection,
             header: header,
             request: null,
-            response: null
+            response: null,
         };
 
-        const operation = this.pending.size < 1024 && !this.stopping && this.isAccepting()
-            ? this.handleCall(context, payload) : this.sendError(context, 1);
-        const call = operation.then(buffer => connection.writeBuffer(buffer));
+        const operation =
+            this.pending.size < 1024 && !this.stopping && this.isAccepting()
+                ? this.handleCall(context, payload)
+                : this.sendError(context, 1);
+        const call = operation.then((buffer) => connection.writeBuffer(buffer));
         this.pending.add(call);
-        call.then(() => this.pending.delete(call), error => {
-            this.pending.delete(call);
-            this.logger.error(error);
-            connection.disconnect();
-        });
+        call.then(
+            () => this.pending.delete(call),
+            (error) => {
+                this.pending.delete(call);
+                this.logger.error(error);
+                connection.disconnect();
+            },
+        );
     }
 }
 

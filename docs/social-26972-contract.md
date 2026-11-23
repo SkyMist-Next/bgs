@@ -46,14 +46,14 @@ Presence withdrawals clear already cached names after visibility changes.
 `Notification` directly through `NotificationService.SendNotification` (method 1,
 world hash `53C8C253`). It is not a Channel.SendMessage call.
 
-| Notification field | Observed meaning |
-| --- | --- |
-| sender_id | Selected game-account EntityId |
-| target_id | System entity: high `2 << 56`, low 0 |
-| type | `WHISPER` |
-| attribute | One `whisper` attribute with string_value |
-| sender_account_id | Parent sender EntityId |
-| target_account_id | Parent recipient EntityId |
+| Notification field | Observed meaning                          |
+| ------------------ | ----------------------------------------- |
+| sender_id          | Selected game-account EntityId            |
+| target_id          | System entity: high `2 << 56`, low 0      |
+| type               | `WHISPER`                                 |
+| attribute          | One `whisper` attribute with string_value |
+| sender_account_id  | Parent sender EntityId                    |
+| target_account_id  | Parent recipient EntityId                 |
 
 The receive registration at `140D3B930` resolves `NotificationListener` world hash
 `C1490E58`, method 1. `140D3BEB0 -> 140D3CC60` consumes the parent, game account and
@@ -100,23 +100,22 @@ entity_id and SET/CLEAR field operations. `140D37AA0`, `140D391E0`, `140D39250`
 and `140D39CE0` establish this path.
 
 All supported keys have unique_id 0 except repeated account game IDs. Their
-unique IDs are stable full game-account IDs. `BN` program is 16974; `WoW` is
-5730135. Timestamps below are signed int64 microseconds since Unix epoch.
+unique IDs are stable full game-account IDs. `BN` program is 16974; `WoW` is 5730135. Timestamps below are signed int64 microseconds since Unix epoch.
 
-| Program/group/field | Variant | Meaning | Native getter |
-| --- | --- | --- | --- |
-| BN/1/1 | string | Real/display name, subject to privacy | 140D354A0 |
-| BN/1/2 | string | Broadcast | 140D35160 |
-| BN/1/3 | entity_id | Repeated online game accounts | 140D35560 |
-| BN/1/4 | string | BattleTag | 140D35080 |
-| BN/1/5 | int64 | Broadcast timestamp | 140D351D0 |
-| BN/1/6 | int64 | Last online timestamp | 140D356A0 |
-| BN/1/7 | bool | AFK | 140D34F50 |
-| BN/1/11 | bool | DND | 140D35230 |
-| BN/2/1 | bool | Game account online | 140D35700 |
-| BN/2/2 | int64 | DND, nonzero means true | 140D350F0 |
-| BN/2/7 | entity_id | Parent account | 140D35000 |
-| BN/2/10 | bool | Game account AFK | 140D34FB0 |
+| Program/group/field | Variant   | Meaning                               | Native getter |
+| ------------------- | --------- | ------------------------------------- | ------------- |
+| BN/1/1              | string    | Real/display name, subject to privacy | 140D354A0     |
+| BN/1/2              | string    | Broadcast                             | 140D35160     |
+| BN/1/3              | entity_id | Repeated online game accounts         | 140D35560     |
+| BN/1/4              | string    | BattleTag                             | 140D35080     |
+| BN/1/5              | int64     | Broadcast timestamp                   | 140D351D0     |
+| BN/1/6              | int64     | Last online timestamp                 | 140D356A0     |
+| BN/1/7              | bool      | AFK                                   | 140D34F50     |
+| BN/1/11             | bool      | DND                                   | 140D35230     |
+| BN/2/1              | bool      | Game account online                   | 140D35700     |
+| BN/2/2              | int64     | DND, nonzero means true               | 140D350F0     |
+| BN/2/7              | entity_id | Parent account                        | 140D35000     |
+| BN/2/10             | bool      | Game account AFK                      | 140D34FB0     |
 
 `140BAA430` and `140A581D0` connect account getters to the Lua tuple. Group 2
 field 1000 is a locally derived rich-presence string, not a backend-owned field.
@@ -127,17 +126,17 @@ native caches. `14049AF90` identifies the realm-address cache; `1408958E0` reads
 faction bits. The core's TeamID 0/1/2 is translated to Alliance/Horde/Neutral
 mask 2/4/1; neutral characters are never presented as Horde.
 
-| WoW/2 field | Variant | Meaning |
-| --- | --- | --- |
-| 1 | uint64 | Realm address |
-| 2 | uint64 | Race ID |
-| 3 | uint64 | Class ID |
-| 5 | uint64 | Level |
-| 6 | uint64 | Zone ID |
-| 7 | int64 | Faction bit mask |
-| 10 | string | Active character name |
-| 11 | uint64 | Realm ID (low 16 bits of realm address) |
-| 12 | uint64 | Player GUID low 64 bits |
+| WoW/2 field | Variant | Meaning                                 |
+| ----------- | ------- | --------------------------------------- |
+| 1           | uint64  | Realm address                           |
+| 2           | uint64  | Race ID                                 |
+| 3           | uint64  | Class ID                                |
+| 5           | uint64  | Level                                   |
+| 6           | uint64  | Zone ID                                 |
+| 7           | int64   | Faction bit mask                        |
+| 10          | string  | Active character name                   |
+| 11          | uint64  | Realm ID (low 16 bits of realm address) |
+| 12          | uint64  | Player GUID low 64 bits                 |
 
 Fields 8 and 9 are not populated: the publisher does not supply their data.
 The native reader uses field 9 for gender-dependent names. The wire GUID field

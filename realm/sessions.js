@@ -7,39 +7,104 @@ const JOIN_TICKET_SECONDS = 60;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 // A claimant is the process and authenticated client that proposed a lease;
 // replaying the same claim is idempotent, any other claimant is rejected.
-const CLAIMANT_FIELDS = ['namespace', 'realm_uid', 'pod_uid', 'instance_id', 'game_account_id', 'account_id', 'session_id', 'build', 'expansion', 'address'];
+const CLAIMANT_FIELDS = [
+    'namespace',
+    'realm_uid',
+    'pod_uid',
+    'instance_id',
+    'game_account_id',
+    'account_id',
+    'session_id',
+    'build',
+    'expansion',
+    'address',
+];
 // A world incarnation is one opened session generation within one realm process.
-const WORLD_IDENTITY = ['account_id', 'game_account_id', 'session_id', 'generation', 'namespace', 'realm_uid', 'pod_uid', 'instance_id'];
-function sameClaimant(actual, expected) { return CLAIMANT_FIELDS.every(key => actual[key] === expected[key]) && sameProof(actual, expected); }
-function sameWorld(left, right) { return WORLD_IDENTITY.every(key => left[key] === right[key]); }
+const WORLD_IDENTITY = [
+    'account_id',
+    'game_account_id',
+    'session_id',
+    'generation',
+    'namespace',
+    'realm_uid',
+    'pod_uid',
+    'instance_id',
+];
+function sameClaimant(actual, expected) {
+    return (
+        CLAIMANT_FIELDS.every((key) => actual[key] === expected[key]) &&
+    sameProof(actual, expected)
+    );
+}
+function sameWorld(left, right) {
+    return WORLD_IDENTITY.every((key) => left[key] === right[key]);
+}
 function requireOwner(raw, expected) {
-    if (!raw) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
+    if (!raw) {
+        throw new Failure('SESSION_OWNERSHIP_LOST');
+    }
     const actual = owner(JSON.parse(raw));
-    if (!sameClaimant(actual, expected)) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
+    if (!sameClaimant(actual, expected)) {
+        throw new Failure('SESSION_OWNERSHIP_LOST');
+    }
     return actual;
 }
 function realmPrefix(uid) {
-    if (!UUID.test(uid)) { throw new Failure('INVALID_REALM'); }
+    if (!UUID.test(uid)) {
+        throw new Failure('INVALID_REALM');
+    }
     return '/skymist/v1/realms/' + uid + '/';
 }
 function ticketKey(uid, ticket) {
-    if (!/^[a-f0-9]{40}$/.test(ticket)) { throw new Failure('INVALID_TICKET'); }
+    if (!/^[a-f0-9]{40}$/.test(ticket)) {
+        throw new Failure('INVALID_TICKET');
+    }
     return realmPrefix(uid) + 'tickets/' + ticket;
 }
-function leaseKey(account) { return '/skymist/v1/sessions/' + id(account); }
+function leaseKey(account) {
+    return '/skymist/v1/sessions/' + id(account);
+}
 function owner(record) {
-    if (!record || record.version !== 1 || !['realm_uid', 'pod_uid', 'instance_id', 'session_id'].every(key => UUID.test(record[key])) ||
-        !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(record.namespace) || record.namespace.length > 63) { throw new Failure('INVALID_SESSION'); }
-    id(record.game_account_id); id(record.account_id); id(record.generation, true);
+    if (
+        !record ||
+    record.version !== 1 ||
+    !['realm_uid', 'pod_uid', 'instance_id', 'session_id'].every((key) =>
+        UUID.test(record[key]),
+    ) ||
+    !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(record.namespace) ||
+    record.namespace.length > 63
+    ) {
+        throw new Failure('INVALID_SESSION');
+    }
+    id(record.game_account_id);
+    id(record.account_id);
+    id(record.generation, true);
     wireProof(record);
-    try { if (canonicalIP(record.address) !== record.address) { throw new Error(); } }
-    catch { throw new Failure('INVALID_SESSION_ADDRESS'); }
-    if (!Number.isInteger(record.build) || record.build <= 0 || !Number.isInteger(record.expansion) || record.expansion < 0 || record.expansion > 127) { throw new Failure('INVALID_SESSION'); }
+    try {
+        if (canonicalIP(record.address) !== record.address) {
+            throw new Error();
+        }
+    } catch {
+        throw new Failure('INVALID_SESSION_ADDRESS');
+    }
+    if (
+        !Number.isInteger(record.build) ||
+    record.build <= 0 ||
+    !Number.isInteger(record.expansion) ||
+    record.expansion < 0 ||
+    record.expansion > 127
+    ) {
+        throw new Failure('INVALID_SESSION');
+    }
     return record;
 }
 function parseLease(raw) {
     let record;
-    try { record = JSON.parse(raw); } catch { throw new Failure('INVALID_SESSION'); }
+    try {
+        record = JSON.parse(raw);
+    } catch {
+        throw new Failure('INVALID_SESSION');
+    }
     return owner(record);
 }
 // Strict read of one world session lease through any client, including a
@@ -49,66 +114,137 @@ async function readLease(client, gameAccountId) {
     return raw === null || raw === undefined ? null : parseLease(raw);
 }
 class WorldSessionLeases {
-    constructor(store, models) { this.store = store; this.models = models; }
-    read(gameAccountId) { return this.store.run(client => readLease(client, gameAccountId)); }
+    constructor(store, models) {
+        this.store = store;
+        this.models = models;
+    }
+    read(gameAccountId) {
+        return this.store.run((client) => readLease(client, gameAccountId));
+    }
     // Live means valid, matching the expected world incarnation (when given) and
     // still owned by the realm process that holds the realm. Malformed is not live.
     async live(gameAccountId, { expected, transaction } = {}) {
         const key = leaseKey(gameAccountId);
-        const raw = await this.store.run(client => client.get(key));
-        if (raw === null || raw === undefined) { return null; }
+        const raw = await this.store.run((client) => client.get(key));
+        if (raw === null || raw === undefined) {
+            return null;
+        }
         let lease;
-        try { lease = parseLease(raw); } catch { return null; }
-        if (expected && !sameWorld(lease, expected)) { return null; }
+        try {
+            lease = parseLease(raw);
+        } catch {
+            return null;
+        }
+        if (expected && !sameWorld(lease, expected)) {
+            return null;
+        }
         if (this.models) {
-            const process = await this.models.RealmProcessOwner.findByPk(lease.realm_uid, { transaction, raw: true });
-            if (!process || process.instance_id !== lease.instance_id) { return null; }
+            const process = await this.models.RealmProcessOwner.findByPk(
+                lease.realm_uid,
+                { transaction, raw: true },
+            );
+            if (!process || process.instance_id !== lease.instance_id) {
+                return null;
+            }
         }
         return lease;
     }
 }
 class Sessions {
-    constructor(store) { this.store = store; }
+    constructor(store) {
+        this.store = store;
+    }
     async issue(ticket, record) {
-        if (record.version !== 1 || record.auth_protocol === 'wow-15595-v0') { throw new Failure('INVALID_TICKET'); }
-        id(record.game_account_id); id(record.account_id);
-        const result = await this.store.run(client => client.set(ticketKey(record.realm_uid, ticket), JSON.stringify(record), { NX: true, EX: JOIN_TICKET_SECONDS }));
-        if (result !== 'OK') { throw new Failure('TICKET_COLLISION'); }
+        if (record.version !== 1 || record.auth_protocol === 'wow-15595-v0') {
+            throw new Failure('INVALID_TICKET');
+        }
+        id(record.game_account_id);
+        id(record.account_id);
+        const result = await this.store.run((client) =>
+            client.set(ticketKey(record.realm_uid, ticket), JSON.stringify(record), {
+                NX: true,
+                EX: JOIN_TICKET_SECONDS,
+            }),
+        );
+        if (result !== 'OK') {
+            throw new Failure('TICKET_COLLISION');
+        }
     }
     async claim(ticket, observed, proposed) {
         owner(proposed);
-        if (JSON.parse(observed).auth_protocol === 'wow-15595-v0') { throw new Failure('INVALID_TICKET'); }
-        const ticketPath = ticketKey(proposed.realm_uid, ticket), leasePath = leaseKey(proposed.game_account_id);
-        return this.store.transaction([ticketPath, leasePath], async client => {
+        if (JSON.parse(observed).auth_protocol === 'wow-15595-v0') {
+            throw new Failure('INVALID_TICKET');
+        }
+        const ticketPath = ticketKey(proposed.realm_uid, ticket),
+            leasePath = leaseKey(proposed.game_account_id);
+        return this.store.transaction([ticketPath, leasePath], async (client) => {
             const existing = await client.get(leasePath);
             if (existing) {
                 const active = owner(JSON.parse(existing));
-                if (!sameClaimant(active, proposed)) { throw new Failure('SESSION_ALREADY_ACTIVE'); }
+                if (!sameClaimant(active, proposed)) {
+                    throw new Failure('SESSION_ALREADY_ACTIVE');
+                }
                 return { commands: [], result: active };
             }
-            if (await client.get(ticketPath) !== observed) { throw new Failure('TICKET_UNAVAILABLE'); }
+            if ((await client.get(ticketPath)) !== observed) {
+                throw new Failure('TICKET_UNAVAILABLE');
+            }
             const record = JSON.parse(observed);
-            if (record.version !== 1 || proposed.generation !== '0') { throw new Failure('INVALID_RECORD'); }
-            if (!['namespace', 'realm_uid', 'game_account_id', 'account_id', 'expansion', 'build'].every(key => record[key] === proposed[key]) || !sameProof(record, proposed)) { throw new Failure('TICKET_IDENTITY_MISMATCH'); }
-            return { commands: [['SET', leasePath, JSON.stringify(proposed), 'EX', '90'], ['DEL', ticketPath]], result: proposed };
+            if (record.version !== 1 || proposed.generation !== '0') {
+                throw new Failure('INVALID_RECORD');
+            }
+            if (
+                ![
+                    'namespace',
+                    'realm_uid',
+                    'game_account_id',
+                    'account_id',
+                    'expansion',
+                    'build',
+                ].every((key) => record[key] === proposed[key]) ||
+        !sameProof(record, proposed)
+            ) {
+                throw new Failure('TICKET_IDENTITY_MISMATCH');
+            }
+            return {
+                commands: [
+                    ['SET', leasePath, JSON.stringify(proposed), 'EX', '90'],
+                    ['DEL', ticketPath],
+                ],
+                result: proposed,
+            };
         });
     }
     async update(expected, operation, generation = '') {
         owner(expected);
-        if (!['renew', 'release', 'bind'].includes(operation)) { throw new Failure('INVALID_OPERATION'); }
-        if (operation === 'bind') { id(generation); }
+        if (!['renew', 'release', 'bind'].includes(operation)) {
+            throw new Failure('INVALID_OPERATION');
+        }
+        if (operation === 'bind') {
+            id(generation);
+        }
         const key = leaseKey(expected.game_account_id);
-        return this.store.transaction([key], async client => {
+        return this.store.transaction([key], async (client) => {
             const actual = requireOwner(await client.get(key), expected);
-            if (operation === 'bind' && actual.generation === generation && ['0', generation].includes(expected.generation)) {
+            if (
+                operation === 'bind' &&
+        actual.generation === generation &&
+        ['0', generation].includes(expected.generation)
+            ) {
                 return { commands: [], result: actual };
             }
-            if (actual.generation !== expected.generation) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
+            if (actual.generation !== expected.generation) {
+                throw new Failure('SESSION_OWNERSHIP_LOST');
+            }
             let commands;
-            if (operation === 'renew') { commands = [['EXPIRE', key, '90']]; }
-            else if (operation === 'release') { commands = [['DEL', key]]; }
-            else {
-                if (actual.generation !== '0') { throw new Failure('STALE_SESSION'); }
+            if (operation === 'renew') {
+                commands = [['EXPIRE', key, '90']];
+            } else if (operation === 'release') {
+                commands = [['DEL', key]];
+            } else {
+                if (actual.generation !== '0') {
+                    throw new Failure('STALE_SESSION');
+                }
                 actual.generation = generation;
                 commands = [['SET', key, JSON.stringify(actual), 'KEEPTTL']];
             }
@@ -117,32 +253,88 @@ class Sessions {
     }
     async continuation(expected, token, operation, value) {
         owner(expected);
-        if (!/^[a-f0-9]{32}$/.test(token) || !['put', 'take'].includes(operation)) { throw new Failure('INVALID_CONTINUATION'); }
-        if (operation === 'put' && (!value || value.session_id !== expected.session_id || value.generation !== expected.generation ||
-            !/^[a-f0-9]{80}$/.test(value.key))) { throw new Failure('INVALID_CONTINUATION'); }
-        const proposed = operation === 'put' ? { session_id: expected.session_id, generation: expected.generation, key: value.key, owner: expected } : undefined;
-        const leasePath = leaseKey(expected.game_account_id), key = realmPrefix(expected.realm_uid) + 'continuations/' + token;
-        return this.store.transaction([leasePath, key], async client => {
+        if (!/^[a-f0-9]{32}$/.test(token) || !['put', 'take'].includes(operation)) {
+            throw new Failure('INVALID_CONTINUATION');
+        }
+        if (
+            operation === 'put' &&
+      (!value ||
+        value.session_id !== expected.session_id ||
+        value.generation !== expected.generation ||
+        !/^[a-f0-9]{80}$/.test(value.key))
+        ) {
+            throw new Failure('INVALID_CONTINUATION');
+        }
+        const proposed =
+            operation === 'put'
+                ? {
+                    session_id: expected.session_id,
+                    generation: expected.generation,
+                    key: value.key,
+                    owner: expected,
+                }
+                : undefined;
+        const leasePath = leaseKey(expected.game_account_id),
+            key = realmPrefix(expected.realm_uid) + 'continuations/' + token;
+        return this.store.transaction([leasePath, key], async (client) => {
             const actual = requireOwner(await client.get(leasePath), expected);
-            if (actual.generation !== expected.generation) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
-            if (actual.generation === '0') { throw new Failure('SESSION_NOT_OPEN'); }
+            if (actual.generation !== expected.generation) {
+                throw new Failure('SESSION_OWNERSHIP_LOST');
+            }
+            if (actual.generation === '0') {
+                throw new Failure('SESSION_NOT_OPEN');
+            }
             const existing = await client.get(key);
             if (operation === 'put') {
                 const encoded = JSON.stringify(proposed);
-                if (existing === encoded) { return { commands: [], result: proposed }; }
-                if (existing) { throw new Failure('CONTINUATION_EXISTS'); }
+                if (existing === encoded) {
+                    return { commands: [], result: proposed };
+                }
+                if (existing) {
+                    throw new Failure('CONTINUATION_EXISTS');
+                }
                 const expiresAt = await client.pExpireTime(leasePath);
-                if (expiresAt <= 0) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
-                return { commands: [['SET', key, encoded, 'PXAT', String(expiresAt)]], result: proposed };
+                if (expiresAt <= 0) {
+                    throw new Failure('SESSION_OWNERSHIP_LOST');
+                }
+                return {
+                    commands: [['SET', key, encoded, 'PXAT', String(expiresAt)]],
+                    result: proposed,
+                };
             }
-            if (!existing) { throw new Failure('CONTINUATION_UNAVAILABLE'); }
+            if (!existing) {
+                throw new Failure('CONTINUATION_UNAVAILABLE');
+            }
             const record = JSON.parse(existing);
-            if (record.session_id !== actual.session_id || record.generation !== actual.generation) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
-            if (!/^[a-f0-9]{80}$/.test(record.key)) { throw new Failure('INVALID_CONTINUATION'); }
+            if (
+                record.session_id !== actual.session_id ||
+        record.generation !== actual.generation
+            ) {
+                throw new Failure('SESSION_OWNERSHIP_LOST');
+            }
+            if (!/^[a-f0-9]{80}$/.test(record.key)) {
+                throw new Failure('INVALID_CONTINUATION');
+            }
             const recordedOwner = owner(record.owner);
-            if (!sameClaimant(recordedOwner, actual) || recordedOwner.generation !== actual.generation) { throw new Failure('SESSION_OWNERSHIP_LOST'); }
+            if (
+                !sameClaimant(recordedOwner, actual) ||
+        recordedOwner.generation !== actual.generation
+            ) {
+                throw new Failure('SESSION_OWNERSHIP_LOST');
+            }
             return { commands: [['DEL', key]], result: record };
         });
     }
 }
-module.exports = { JOIN_TICKET_SECONDS, Sessions, WorldSessionLeases, readLease, sameClaimant, sameWorld, ticketKey, leaseKey, realmPrefix, owner };
+module.exports = {
+    JOIN_TICKET_SECONDS,
+    Sessions,
+    WorldSessionLeases,
+    readLease,
+    sameClaimant,
+    sameWorld,
+    ticketKey,
+    leaseKey,
+    realmPrefix,
+    owner,
+};

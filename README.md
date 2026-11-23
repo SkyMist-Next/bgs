@@ -196,12 +196,12 @@ to `https://127.0.0.1:443/bnetserver/login/`; production can instead use a URL a
 published into metadata. All REST instances must publish the same external URL.
 Missing web-auth configuration makes RPC Logon fail without issuing a challenge.
 
-| Data | Redis representation | Lifetime |
-| --- | --- | --- |
-| Service hashes, login URL, realm/server catalog | Hash `/aurora/metadata`; fields are the old `/aurora/services/...` paths | Persistent |
-| Login ticket | Hash `/aurora/services/AuthenticationService/loginTickets/<ticket>` with `ticket`, `program`, optional `accountId` | 300 seconds from creation |
-| Realm-list ticket | JSON string at `/aurora/services/GameUtilitiesService/realmListTickets/<hex>` | 300 seconds from creation |
-| Realm-join ticket | JSON string at `/skymist/v1/realms/<realm_uid>/tickets/<hex>` | 60 seconds from issue; claiming it deletes it |
+| Data                                            | Redis representation                                                                                               | Lifetime                                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| Service hashes, login URL, realm/server catalog | Hash `/aurora/metadata`; fields are the old `/aurora/services/...` paths                                           | Persistent                                    |
+| Login ticket                                    | Hash `/aurora/services/AuthenticationService/loginTickets/<ticket>` with `ticket`, `program`, optional `accountId` | 300 seconds from creation                     |
+| Realm-list ticket                               | JSON string at `/aurora/services/GameUtilitiesService/realmListTickets/<hex>`                                      | 300 seconds from creation                     |
+| Realm-join ticket                               | JSON string at `/skymist/v1/realms/<realm_uid>/tickets/<hex>`                                                      | 60 seconds from issue; claiming it deletes it |
 
 Login-ticket creation and expiry are atomic. Binding an account checks that the
 ticket is still live and never extends its expiry. Repeating the same binding is
@@ -331,15 +331,15 @@ the storage boundary was also substituted in that run. Both cases use Node 26 an
 selects synchronous verification. One local Linux x64 run used 64 successful
 logins, concurrency 8, bcrypt cost 10, and the default four libuv workers:
 
-| Measurement | Synchronous baseline | Asynchronous verification |
-| --- | ---: | ---: |
-| Successful requests/second | 19.81 | 70.73 |
-| Login latency p95, ms | 650.38 | 119.54 |
-| Health latency p95, ms | 698.59 | 2.58 |
-| Event-loop delay p99, ms | 410.52 | 11.14 |
-| Server CPU time, ms | 3237.41 | 3530.61 |
-| Peak server RSS, MiB | 73.76 | 75.34 |
-| Request errors | 0 | 0 |
+| Measurement                | Synchronous baseline | Asynchronous verification |
+| -------------------------- | -------------------: | ------------------------: |
+| Successful requests/second |                19.81 |                     70.73 |
+| Login latency p95, ms      |               650.38 |                    119.54 |
+| Health latency p95, ms     |               698.59 |                      2.58 |
+| Event-loop delay p99, ms   |               410.52 |                     11.14 |
+| Server CPU time, ms        |              3237.41 |                   3530.61 |
+| Peak server RSS, MiB       |                73.76 |                     75.34 |
+| Request errors             |                    0 |                         0 |
 
 These measurements demonstrate the password-verification scheduling change in a
 controlled workload. They are not a whole-stack Node 10 comparison or production
@@ -400,14 +400,14 @@ Redis 6.3.1 against Redis 8.8.0 through Sentinel. Redis results used the impleme
 in this tree mounted read-only into the same container runtime. The temporary legacy
 adapter was not added as an application dependency or compatibility path.
 
-| Backend / workload | Requests/s | p95 ms | Loop p99 ms | Client CPU ms | Peak RSS MiB | Errors |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| etcd discovery, no tickets | 416.46 | 28.57 | 19.86 | 447.40 | 114.61 | 0 |
-| Redis discovery, no tickets | 1508.08 | 8.19 | 16.49 | 140.22 | 169.13 | 0 |
-| etcd discovery, 10,000 tickets | 585.94 | 20.39 | 16.22 | 277.10 | 217.54 | 0 |
-| Redis discovery, 10,000 tickets | 1774.44 | 5.09 | 13.42 | 101.27 | 174.28 | 0 |
-| etcd authentication storage | 118.98 | 92.35 | 18.73 | 1176.36 | 220.42 | 0 |
-| Redis authentication storage | 2992.81 | 4.44 | 10.75 | 54.03 | 174.40 | 0 |
+| Backend / workload              | Requests/s | p95 ms | Loop p99 ms | Client CPU ms | Peak RSS MiB | Errors |
+| ------------------------------- | ---------: | -----: | ----------: | ------------: | -----------: | -----: |
+| etcd discovery, no tickets      |     416.46 |  28.57 |       19.86 |        447.40 |       114.61 |      0 |
+| Redis discovery, no tickets     |    1508.08 |   8.19 |       16.49 |        140.22 |       169.13 |      0 |
+| etcd discovery, 10,000 tickets  |     585.94 |  20.39 |       16.22 |        277.10 |       217.54 |      0 |
+| Redis discovery, 10,000 tickets |    1774.44 |   5.09 |       13.42 |        101.27 |       174.28 |      0 |
+| etcd authentication storage     |     118.98 |  92.35 |       18.73 |       1176.36 |       220.42 |      0 |
+| Redis authentication storage    |    2992.81 |   4.44 |       10.75 |         54.03 |       174.40 |      0 |
 
 Authentication here measures ticket creation, retrieval, account binding, and
 verification, excluding HTTP, SQL, bcrypt, and AMQP. The old flow performs six
@@ -460,15 +460,15 @@ logins, concurrency eight, cost ten, and four libuv workers. The first pair ran 
 the working tree; two further pairs used the temporary before/after copies.
 Medians for the asynchronous production path were:
 
-| Measurement | Before | After |
-| --- | ---: | ---: |
-| Successful requests/second | 75.60 | 73.22 |
-| Login latency p95, ms | 117.48 | 117.99 |
-| Health latency p95, ms | 2.48 | 1.65 |
-| Event-loop delay p99, ms | 10.92 | 10.91 |
-| Server CPU time, ms | 3351.35 | 3518.13 |
-| Peak server RSS, MiB | 59.59 | 59.59 |
-| Request errors, every run | 0 | 0 |
+| Measurement                |  Before |   After |
+| -------------------------- | ------: | ------: |
+| Successful requests/second |   75.60 |   73.22 |
+| Login latency p95, ms      |  117.48 |  117.99 |
+| Health latency p95, ms     |    2.48 |    1.65 |
+| Event-loop delay p99, ms   |   10.92 |   10.91 |
+| Server CPU time, ms        | 3351.35 | 3518.13 |
+| Peak server RSS, MiB       |   59.59 |   59.59 |
+| Request errors, every run  |       0 |       0 |
 
 Synchronous-control throughput medians were 19.73 and 19.79 requests/second, also
 with zero errors. Asynchronous throughput ranges overlapped (68.44–77.15 before,
@@ -476,7 +476,6 @@ with zero errors. Asynchronous throughput ranges overlapped (68.44–77.15 befor
 workload. The benchmark substitutes SQL/Redis and does not measure RPC/AMQP
 capacity. Live MySQL/RabbitMQ, native-client, and production-load acceptance remain
 separate; this refactor includes no protocol repair or deployment.
-
 
 ## Shared server lifecycle (2026-11-02)
 
@@ -517,12 +516,12 @@ Deadline and probe helpers live in `utils/deadline.js` and
 
 A networking plugin implements:
 
-| Method | Responsibility |
-| --- | --- |
-| `initialize(context)` | Return an unbound Node server after initialization. |
-| `stopAccepting()` | Disable new application work on all connections. |
-| `drain()` | Complete admitted handlers/output and close owned sessions/channels. |
-| `forceClose()` | Terminate remaining workload resources. |
+| Method                | Responsibility                                                       |
+| --------------------- | -------------------------------------------------------------------- |
+| `initialize(context)` | Return an unbound Node server after initialization.                  |
+| `stopAccepting()`     | Disable new application work on all connections.                     |
+| `drain()`             | Complete admitted handlers/output and close owned sessions/channels. |
+| `forceClose()`        | Terminate remaining workload resources.                              |
 
 The context supplies connected dependencies, `isReady`, `isAccepting`, `signal`,
 and `onFatal`. The contract is checked before acquiring dependencies. The networking
@@ -560,15 +559,15 @@ existing synchronous and asynchronous controls. Three sequential before/after
 pairs used the same 64 logins, concurrency eight, bcrypt cost ten, four libuv
 workers, and controlled SQL/Redis dependencies. Medians were:
 
-| Measurement | Before: asynchronous REST | After: NetworkingServer + RestPlugin |
-| --- | ---: | ---: |
-| Successful requests/second | 73.35 | 76.79 |
-| Login latency p95, ms | 120.15 | 116.87 |
-| Health latency p95, ms | 2.05 | 1.78 |
-| Event-loop delay p99, ms | 10.86 | 11.02 |
-| Server CPU time, ms | 3481.20 | 3316.23 |
-| Peak server RSS, MiB | 59.41 | 59.90 |
-| Errors, every run | 0 | 0 |
+| Measurement                | Before: asynchronous REST | After: NetworkingServer + RestPlugin |
+| -------------------------- | ------------------------: | -----------------------------------: |
+| Successful requests/second |                     73.35 |                                76.79 |
+| Login latency p95, ms      |                    120.15 |                               116.87 |
+| Health latency p95, ms     |                      2.05 |                                 1.78 |
+| Event-loop delay p99, ms   |                     10.86 |                                11.02 |
+| Server CPU time, ms        |                   3481.20 |                              3316.23 |
+| Peak server RSS, MiB       |                     59.41 |                                59.90 |
+| Errors, every run          |                         0 |                                    0 |
 
 Before/after throughput ranges overlapped (72.09–76.06 and 73.60–78.03 requests/s).
 These samples show no evident regression; they do not establish a production

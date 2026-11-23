@@ -5,12 +5,20 @@ const wire = require('../social/wire');
 const friends = require('../social/friends-wire');
 const { registerSocialHandlers } = require('../social/errors');
 
-const TYPES = Object.freeze({ spamReport: 'spam', harassmentReport: 'harassment', realLifeThreatReport: 'real_life_threat',
-    inappropriateBattleTagReport: 'inappropriate_battle_tag', hackingReport: 'hacking', bottingReport: 'botting' });
+const TYPES = Object.freeze({
+    spamReport: 'spam',
+    harassmentReport: 'harassment',
+    realLifeThreatReport: 'real_life_threat',
+    inappropriateBattleTagReport: 'inappropriate_battle_tag',
+    hackingReport: 'hacking',
+    bottingReport: 'botting',
+});
 
 class ReportService extends Service {
     constructor({ logger, models, runtime }) {
-        super('ReportService', 'proto/bgs/low/pb/client/report_service.proto', { logger });
+        super('ReportService', 'proto/bgs/low/pb/client/report_service.proto', {
+            logger,
+        });
         this.models = models;
         this.runtime = runtime;
         this.graph = runtime.graph;
@@ -20,42 +28,97 @@ class ReportService extends Service {
     async SendReport(context) {
         const session = await this.runtime.session(context);
         const report = context.request.report;
-        if (!report) { throw 0xBC5; }
-        if (report.reportingAccount && wire.accountId(report.reportingAccount) !== session.accountId) { throw 0xA; }
-        if (report.reportingGameAccount) { await friends.gameEntity(this.models, report.reportingGameAccount, session); }
-        if (Buffer.byteLength(report.reportType || '') > 64 || (report.attribute || []).length > 16) { throw 0xAFC9; }
+        if (!report) {
+            throw 0xbc5;
+        }
+        if (
+            report.reportingAccount &&
+      wire.accountId(report.reportingAccount) !== session.accountId
+        ) {
+            throw 0xa;
+        }
+        if (report.reportingGameAccount) {
+            await friends.gameEntity(
+                this.models,
+                report.reportingGameAccount,
+                session,
+            );
+        }
+        if (
+            Buffer.byteLength(report.reportType || '') > 64 ||
+      (report.attribute || []).length > 16
+        ) {
+            throw 0xafc9;
+        }
         // This older method has only generic attributes. Their target field names/encodings must be
         // recovered before use; do not invent a report schema or trust a client-supplied reporter.
-        throw 0xBC7;
+        throw 0xbc7;
     }
 
     async SubmitReport(context) {
         const session = await this.runtime.session(context);
-        if (context.request.agentId) { await friends.gameHandle(this.models, context.request.agentId, session); }
+        if (context.request.agentId) {
+            await friends.gameHandle(this.models, context.request.agentId, session);
+        }
         const report = context.request.reportType;
-        if (!report) { throw 0xAFCA; }
-        const selected = [...Object.keys(TYPES), 'customReport'].filter(key => Object.hasOwn(report, key));
-        if (selected.length !== 1 || selected[0] === 'customReport') { throw 0xAFCA; }
+        if (!report) {
+            throw 0xafca;
+        }
+        const selected = [...Object.keys(TYPES), 'customReport'].filter((key) =>
+            Object.hasOwn(report, key),
+        );
+        if (selected.length !== 1 || selected[0] === 'customReport') {
+            throw 0xafca;
+        }
         const key = selected[0];
         const value = report[key];
-        if (!value?.target) { throw 0xAFCB; }
+        if (!value?.target) {
+            throw 0xafcb;
+        }
         const target = await friends.gameHandle(this.models, value.target);
-        const details = { note: report.note || '', gameAccountId: friends.storedId(target.id) };
+        const details = {
+            note: report.note || '',
+            gameAccountId: friends.storedId(target.id),
+        };
         for (const name of ['text', 'battleTag']) {
-            if (Object.hasOwn(value, name)) { details[name] = value[name]; }
+            if (Object.hasOwn(value, name)) {
+                details[name] = value[name];
+            }
         }
         if (key === 'spamReport') {
-            if (Object.hasOwn(value, 'source') && ![1, 2, 3, 4].includes(value.source)) { throw 0xAFCB; }
+            if (
+                Object.hasOwn(value, 'source') &&
+        ![1, 2, 3, 4].includes(value.source)
+            ) {
+                throw 0xafcb;
+            }
             details.source = value.source || 1;
         }
-        for (const text of [details.note, details.text, details.battleTag].filter(value => value !== undefined)) {
-            if (typeof text !== 'string' || !text.isWellFormed() || text.includes('\0')) { throw 0xAFCB; }
-            if (Buffer.byteLength(text) > 4096) { throw 0xAFC9; }
+        for (const text of [details.note, details.text, details.battleTag].filter(
+            (value) => value !== undefined,
+        )) {
+            if (
+                typeof text !== 'string' ||
+        !text.isWellFormed() ||
+        text.includes('\0')
+            ) {
+                throw 0xafcb;
+            }
+            if (Buffer.byteLength(text) > 4096) {
+                throw 0xafc9;
+            }
         }
         const serialized = JSON.stringify(details);
-        if (Buffer.byteLength(serialized) > 4096) { throw 0xAFC9; }
-        const result = await this.graph.report({ actorId: session.accountId, targetId: friends.storedId(target.accountId),
-            operationId: session.operationId(), reason: TYPES[key], details: serialized });
+        if (Buffer.byteLength(serialized) > 4096) {
+            throw 0xafc9;
+        }
+        const result = await this.graph.report({
+            actorId: session.accountId,
+            targetId: friends.storedId(target.accountId),
+            operationId: session.operationId(),
+            reason: TYPES[key],
+            details: serialized,
+        });
         friends.reconcile(this.runtime, result, context);
         return 0;
     }

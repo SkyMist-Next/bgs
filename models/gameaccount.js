@@ -8,57 +8,125 @@ const entityTypes = loadProto('proto/bgs/low/pb/client/entity_types.proto');
 const entityId = entityTypes.lookupType('bgs.protocol.EntityId');
 
 module.exports = (sequelize, DataTypes) => {
-    let GameAccount = sequelize.define('GameAccount', {
-        id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
-        region: { type: DataTypes.TINYINT, allowNull: false },
-        program: { type: DataTypes.CHAR(4), allowNull: false },
-        displayName: { type: DataTypes.STRING, allowNull: false, field: 'display_name' },
-        banExpiresAt: { type: DataTypes.DATE, field: 'ban_expires_at' },
-        banReason: { type: DataTypes.STRING(1024), field: 'ban_reason' },
-        isBanned: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'banned' },
-        isSuspended: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'suspended' },
-        accountId: { type: DataTypes.BIGINT, allowNull: false, field: 'account_id' },
-        wowLicenseIndex: { type: DataTypes.INTEGER.UNSIGNED, allowNull: true, field: 'wow_license_index' },
-        expansion: { type: DataTypes.TINYINT, allowNull: false, defaultValue: 6 },
-        billingPlan: { type: DataTypes.TINYINT, allowNull: true, defaultValue: 0, field: 'billing_plan' },
-        billingTimeRemaining: { type: DataTypes.INTEGER, allowNull: true, defaultValue: 0, field: 'billing_time_remaining' },
-        tutorialData: { type: DataTypes.BLOB('tiny'), allowNull: true, field: 'tutorial_data' }
-    }, {
-        getterMethods: {
-            entityId() {
-                let id = entityId.create();
-                let programId = new FourCC(this.program);
-
-                id.low = Long.fromString(String(this.id), true);
-                id.high = Long.fromBits(programId.getIntValue(), (0x2 << 24) | (this.region & 0xFF), true);
-
-                return id;
-            }
-        },
-        hooks: {
-            async beforeCreate(instance, options) {
-                if (instance.program === 'WoW') {
-                    if (instance.wowLicenseIndex != null) { throw new Error('WoW license index is allocated by the server'); }
-                    instance.wowLicenseIndex = await allocate(sequelize.models, instance.accountId, options.transaction);
-                } else if (instance.wowLicenseIndex != null) { throw new Error('Non-WoW account has a WoW license index'); }
+    let GameAccount = sequelize.define(
+        'GameAccount',
+        {
+            id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
+            region: { type: DataTypes.TINYINT, allowNull: false },
+            program: { type: DataTypes.CHAR(4), allowNull: false },
+            displayName: {
+                type: DataTypes.STRING,
+                allowNull: false,
+                field: 'display_name',
             },
-            beforeBulkCreate(instances, options) {
-                if (!options.individualHooks && instances.some(instance => instance.program === 'WoW')) {
-                    throw new Error('WoW account bulk creation requires individual hooks and a transaction');
-                }
+            banExpiresAt: { type: DataTypes.DATE, field: 'ban_expires_at' },
+            banReason: { type: DataTypes.STRING(1024), field: 'ban_reason' },
+            isBanned: {
+                type: DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: false,
+                field: 'banned',
             },
-            beforeUpdate(instance) {
-                if (instance.changed('expansion')) { throw new Error('GameAccount expansion is immutable'); }
-                if (['accountId', 'wowLicenseIndex', 'program'].some(field => instance.changed(field))) { throw new Error('GameAccount license identity is immutable'); }
-            }
+            isSuspended: {
+                type: DataTypes.BOOLEAN,
+                allowNull: false,
+                defaultValue: false,
+                field: 'suspended',
+            },
+            accountId: {
+                type: DataTypes.BIGINT,
+                allowNull: false,
+                field: 'account_id',
+            },
+            wowLicenseIndex: {
+                type: DataTypes.INTEGER.UNSIGNED,
+                allowNull: true,
+                field: 'wow_license_index',
+            },
+            expansion: { type: DataTypes.TINYINT, allowNull: false, defaultValue: 6 },
+            billingPlan: {
+                type: DataTypes.TINYINT,
+                allowNull: true,
+                defaultValue: 0,
+                field: 'billing_plan',
+            },
+            billingTimeRemaining: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+                defaultValue: 0,
+                field: 'billing_time_remaining',
+            },
+            tutorialData: {
+                type: DataTypes.BLOB('tiny'),
+                allowNull: true,
+                field: 'tutorial_data',
+            },
         },
-        timestamps: true,
-        underscored: true,
-        tableName: 'game_accounts'
-    });
+        {
+            getterMethods: {
+                entityId() {
+                    let id = entityId.create();
+                    let programId = new FourCC(this.program);
+
+                    id.low = Long.fromString(String(this.id), true);
+                    id.high = Long.fromBits(
+                        programId.getIntValue(),
+                        (0x2 << 24) | (this.region & 0xff),
+                        true,
+                    );
+
+                    return id;
+                },
+            },
+            hooks: {
+                async beforeCreate(instance, options) {
+                    if (instance.program === 'WoW') {
+                        if (instance.wowLicenseIndex != null) {
+                            throw new Error('WoW license index is allocated by the server');
+                        }
+                        instance.wowLicenseIndex = await allocate(
+                            sequelize.models,
+                            instance.accountId,
+                            options.transaction,
+                        );
+                    } else if (instance.wowLicenseIndex != null) {
+                        throw new Error('Non-WoW account has a WoW license index');
+                    }
+                },
+                beforeBulkCreate(instances, options) {
+                    if (
+                        !options.individualHooks &&
+            instances.some((instance) => instance.program === 'WoW')
+                    ) {
+                        throw new Error(
+                            'WoW account bulk creation requires individual hooks and a transaction',
+                        );
+                    }
+                },
+                beforeUpdate(instance) {
+                    if (instance.changed('expansion')) {
+                        throw new Error('GameAccount expansion is immutable');
+                    }
+                    if (
+                        ['accountId', 'wowLicenseIndex', 'program'].some((field) =>
+                            instance.changed(field),
+                        )
+                    ) {
+                        throw new Error('GameAccount license identity is immutable');
+                    }
+                },
+            },
+            timestamps: true,
+            underscored: true,
+            tableName: 'game_accounts',
+        },
+    );
 
     GameAccount.associate = (models) => {
-        GameAccount.belongsTo(models.Account, { foreignKey: 'accountId', targetKey: 'id'});
+        GameAccount.belongsTo(models.Account, {
+            foreignKey: 'accountId',
+            targetKey: 'id',
+        });
     };
 
     return GameAccount;

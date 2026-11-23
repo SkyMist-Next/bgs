@@ -13,6 +13,8 @@ test('health listener reports dependency readiness and closes on shutdown', asyn
         state.store.healthy = false;
         assert.equal((await fetch('http://127.0.0.1:18081/ready')).status, 503);
         assert.equal((await fetch('http://127.0.0.1:18081/alive')).status, 200);
-    } finally { await server.stop(); }
+    } finally {
+        await server.stop();
+    }
     await assert.rejects(fetch('http://127.0.0.1:18081/alive'));
 });

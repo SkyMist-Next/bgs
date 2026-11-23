@@ -5,43 +5,72 @@ const { TlsCredentials } = require('../utils/tls-credentials');
 
 class NetworkingServer extends BaseServer {
     constructor({ plugin, ...options } = {}) {
-        // Validate before a single dependency is constructed or connected.
-        for (const method of ['initialize', 'stopAccepting', 'drain', 'forceClose']) {
-            if (typeof plugin?.[method] !== 'function') { throw new TypeError('Plugin requires ' + method + '()'); }
+    // Validate before a single dependency is constructed or connected.
+        for (const method of [
+            'initialize',
+            'stopAccepting',
+            'drain',
+            'forceClose',
+        ]) {
+            if (typeof plugin?.[method] !== 'function') {
+                throw new TypeError('Plugin requires ' + method + '()');
+            }
         }
         super(options);
         this.plugin = plugin;
         this.sockets = new Set();
     }
 
-    isServing() { return super.isServing() && (!this.tlsCredentials || this.tlsCredentials.valid()); }
+    isServing() {
+        return (
+            super.isServing() && (!this.tlsCredentials || this.tlsCredentials.valid())
+        );
+    }
 
     async onStart(dependencies, signal) {
         let tlsOptions;
-        if (this.config.tlsEnabled ?? (this.config.environment === 'development')) {
+        if (this.config.tlsEnabled ?? this.config.environment === 'development') {
             this.tlsCredentials = new TlsCredentials(this.config, this.logger);
-            signal.addEventListener('abort', () => this.tlsCredentials.stop(), { once: true });
+            signal.addEventListener('abort', () => this.tlsCredentials.stop(), {
+                once: true,
+            });
             tlsOptions = await this.tlsCredentials.initialize();
             signal.throwIfAborted();
         }
-        this.initializing = Promise.resolve(this.plugin.initialize({
-            ...dependencies, dependencies, signal, tlsOptions,
-            isReady: () => this.isReady(), isAccepting: () => this.isAccepting(),
-            onFatal: error => this.stop(error)
-        }));
+        this.initializing = Promise.resolve(
+            this.plugin.initialize({
+                ...dependencies,
+                dependencies,
+                signal,
+                tlsOptions,
+                isReady: () => this.isReady(),
+                isAccepting: () => this.isAccepting(),
+                onFatal: (error) => this.stop(error),
+            }),
+        );
         const listener = await this.initializing;
         this.listener = listener;
         listener.on('error', () => {
-            if (!signal.aborted) { void this.stop(new Error('Network listener failed')); }
+            if (!signal.aborted) {
+                void this.stop(new Error('Network listener failed'));
+            }
         });
         // 'connection' includes raw TCP sockets before a TLS handshake completes.
-        listener.on('connection', socket => {
+        listener.on('connection', (socket) => {
             this.sockets.add(socket);
             socket.once('close', () => this.sockets.delete(socket));
-            if (signal.aborted || (this.tlsCredentials && !this.tlsCredentials.valid())) { socket.destroy(); }
+            if (
+                signal.aborted ||
+        (this.tlsCredentials && !this.tlsCredentials.valid())
+            ) {
+                socket.destroy();
+            }
         });
         if (signal.aborted) {
-            await Promise.allSettled([this.closeListener(), this.plugin.forceClose()]);
+            await Promise.allSettled([
+                this.closeListener(),
+                this.plugin.forceClose(),
+            ]);
             signal.throwIfAborted();
         }
         await new Promise((resolve, reject) => {
@@ -50,32 +79,53 @@ class NetworkingServer extends BaseServer {
                 listener.removeListener('error', failed);
                 signal.removeEventListener('abort', aborted);
             };
-            const listening = () => { clean(); resolve(); };
-            const failed = error => { clean(); reject(error); };
-            const aborted = () => { clean(); reject(signal.reason); };
+            const listening = () => {
+                clean();
+                resolve();
+            };
+            const failed = (error) => {
+                clean();
+                reject(error);
+            };
+            const aborted = () => {
+                clean();
+                reject(signal.reason);
+            };
             listener.once('listening', listening);
             listener.once('error', failed);
             signal.addEventListener('abort', aborted, { once: true });
-            try { listener.listen({ port: this.config.port, host: this.config.host, signal }); }
-            catch (error) { failed(error); }
+            try {
+                listener.listen({
+                    port: this.config.port,
+                    host: this.config.host,
+                    signal,
+                });
+            } catch (error) {
+                failed(error);
+            }
         });
         this.tlsCredentials?.start(listener);
         this.logger?.info('Listening on port ' + listener.address().port);
     }
 
     closeListener() {
-        if (!this.listener) { return Promise.resolve(); }
+        if (!this.listener) {
+            return Promise.resolve();
+        }
         this.listenerClose ??= new Promise((resolve, reject) => {
-            this.listener.close(error => {
-                if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') { reject(error); }
-                else { resolve(); }
+            this.listener.close((error) => {
+                if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') {
+                    reject(error);
+                } else {
+                    resolve();
+                }
             });
         });
         return this.listenerClose;
     }
 
     onStopAccepting() {
-        // Start closing the listener, but drain handlers before waiting for sockets.
+    // Start closing the listener, but drain handlers before waiting for sockets.
         void this.closeListener().catch(() => {});
         return this.plugin.stopAccepting();
     }
@@ -86,7 +136,9 @@ class NetworkingServer extends BaseServer {
     }
 
     async onForceClose() {
-        for (const socket of this.sockets) { socket.destroy(); }
+        for (const socket of this.sockets) {
+            socket.destroy();
+        }
         await Promise.all([this.closeListener(), this.plugin.forceClose()]);
     }
 }

@@ -4,5 +4,9 @@ module.exports = {
     async up(queryInterface) {
         await create(queryInterface, 'GameAccountPermission');
     },
-    async down() { throw new Error('Account permission rollback requires preserving existing grants and denials'); }
+    async down() {
+        throw new Error(
+            'Account permission rollback requires preserving existing grants and denials',
+        );
+    },
 };

@@ -6,7 +6,9 @@
 const FNV = require('fnv').FNV;
 const loadProto = require('../utils/protobuf');
 
-const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType('bgs.protocol.Header');
+const Header = loadProto('proto/bgs/low/pb/client/rpc_types.proto').lookupType(
+    'bgs.protocol.Header',
+);
 
 class Listener {
     constructor(name, file, amqpConnection) {
@@ -22,13 +24,14 @@ class Listener {
         this.methods = service.methodsArray;
 
         let hash = new FNV();
-        hash.update(service.getOption('(bgs.protocol.service_options).descriptor_name'));
+        hash.update(
+            service.getOption('(bgs.protocol.service_options).descriptor_name'),
+        );
         this.hash = parseInt(hash.digest('hex'), 16);
 
-        this.channelReady = this.amqpConnection.createChannel().
-            then((channel) => {
-                this.amqpChannel = channel;
-            });
+        this.channelReady = this.amqpConnection.createChannel().then((channel) => {
+            this.amqpChannel = channel;
+        });
     }
 
     async destroy() {
@@ -56,7 +59,11 @@ class Listener {
         header.size = requestBuffer.length;
         header.status = 0;
 
-        this.amqpChannel.sendToQueue(this.clientQueue, requestBuffer, { headers: Header.toObject(header), type: 'request', appId: this.name });
+        this.amqpChannel.sendToQueue(this.clientQueue, requestBuffer, {
+            headers: Header.toObject(header),
+            type: 'request',
+            appId: this.name,
+        });
     }
 }
 

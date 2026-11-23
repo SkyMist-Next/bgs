@@ -22,25 +22,49 @@ class SocialSession {
     }
     // The selected license, still owned, eligible for this build and not banned.
     async selectedGame() {
-        if (!this.gameAccountId) { throw 0xA; }
+        if (!this.gameAccountId) {
+            throw 0xa;
+        }
         return this.#runtime.sessions.ownedGame(this, this.gameAccountId);
     }
     // Subscriptions become ready only after this request's reply is published.
     async subscribe(kind, target, objectId, filter = {}, snapshot = null) {
-        return this.#runtime.subscribe(this.#request(), this, kind, target, objectId, filter, snapshot);
+        return this.#runtime.subscribe(
+            this.#request(),
+            this,
+            kind,
+            target,
+            objectId,
+            filter,
+            snapshot,
+        );
     }
-    unsubscribe(kind, target, objectId) { return this.#runtime.unsubscribe(this, kind, target, objectId); }
+    unsubscribe(kind, target, objectId) {
+        return this.#runtime.unsubscribe(this, kind, target, objectId);
+    }
     // A session block lasts only as long as this session; true when newly added.
-    blockForSession(accountId) { return this.#runtime.blockSession(this, accountId); }
-    unblockForSession(accountId) { return this.#runtime.unblockSession(this, accountId); }
-    sessionBlocks() { return this.#runtime.sessionBlocks(this); }
+    blockForSession(accountId) {
+        return this.#runtime.blockSession(this, accountId);
+    }
+    unblockForSession(accountId) {
+        return this.#runtime.unblockSession(this, accountId);
+    }
+    sessionBlocks() {
+        return this.#runtime.sessionBlocks(this);
+    }
     // Delivers one whisper live to the target's sessions; false when it reached no one.
-    whisper(targetAccountId, buildFrame) { return this.#runtime.whisper(this, targetAccountId, buildFrame); }
+    whisper(targetAccountId, buildFrame) {
+        return this.#runtime.whisper(this, targetAccountId, buildFrame);
+    }
     // The idempotency key of the current RPC within this session.
-    operationId() { return this.#runtime.operationId(this.#request()); }
+    operationId() {
+        return this.#runtime.operationId(this.#request());
+    }
 
     #request() {
-        if (!this.#context) { throw 0xA; }
+        if (!this.#context) {
+            throw 0xa;
+        }
         return this.#context;
     }
 }

@@ -2,8 +2,8 @@
 
 module.exports = {
     async up(q) {
-        // No wall-clock TTL: a temporary social outage must not lift a block on a still-live session.
-        // Runtime cleanup consults the authenticated connection/world owner before removing a row.
+    // No wall-clock TTL: a temporary social outage must not lift a block on a still-live session.
+    // Runtime cleanup consults the authenticated connection/world owner before removing a row.
         await q.sequelize.query(`CREATE TABLE IF NOT EXISTS social_session_blocks (
             id VARCHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
             session_key VARCHAR(80) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
@@ -18,5 +18,9 @@ module.exports = {
             CONSTRAINT social_session_block_distinct CHECK (account_id <> blocked_account_id)
         ) ENGINE=InnoDB`);
     },
-    async down() { throw new Error('Retain session blocks until authenticated session cleanup'); }
+    async down() {
+        throw new Error(
+            'Retain session blocks until authenticated session cleanup',
+        );
+    },
 };
