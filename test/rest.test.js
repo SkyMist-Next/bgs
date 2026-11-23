@@ -60,6 +60,7 @@ async function setup(
         models,
         store,
         logger: {
+            debug() {},
             info: (message, fields) => requests.push({ message, ...fields }),
             error: (error) => errors.push(error),
         },
@@ -297,7 +298,7 @@ test('HTTPS wire headers retain Legion Content-Type casing and health can be int
     const app = createRestApp({
         models: {},
         store: {},
-        logger: { info() {}, error() {} },
+        logger: { debug() {}, info() {}, error() {} },
         isReady: () => true,
         exposeHealth: false,
     });

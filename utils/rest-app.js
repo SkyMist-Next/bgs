@@ -53,9 +53,7 @@ module.exports = function createRestApp({
     }
 
     rest.get('/bnetserver/login/:loginTicket', (req, res) => {
-        logger.debug(
-            'Received login form request for loginTicket: ' + req.params.loginTicket,
-        );
+        logger.debug('Received login form request');
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.json({
             type: 'LOGIN_FORM',
@@ -83,9 +81,7 @@ module.exports = function createRestApp({
 
     rest.post('/bnetserver/login/:loginTicket', (req, res) =>
         track(async () => {
-            logger.debug(
-                'Received login request for loginTicket: ' + req.params.loginTicket,
-            );
+            logger.debug('Received login request');
             const inputs = req.body && req.body.inputs;
 
             if (
@@ -108,9 +104,7 @@ module.exports = function createRestApp({
             const ticket = await store.getLoginTicket(req.params.loginTicket);
 
             if (!ticket) {
-                logger.debug(
-                    'Received invalid login ticket: ' + req.params.loginTicket,
-                );
+                logger.debug('Received unknown or expired login ticket');
                 return res.sendStatus(500);
             }
 
@@ -186,7 +180,11 @@ module.exports = function createRestApp({
                 blocked(account) ||
         !(await compare(passwords[0].value, account.hash))
             ) {
-                logger.debug('Wrong password for account: ' + account.id);
+                logger.debug(
+                    account
+                        ? 'Rejected login for account ' + account.id
+                        : 'Rejected login for unknown account',
+                );
                 return res.json({ authentication_state: 'LOGIN' });
             }
 

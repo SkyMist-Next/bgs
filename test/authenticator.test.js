@@ -205,7 +205,7 @@ test('REST keeps enrolled password logins pending until a valid native token res
         models,
         store,
         compare: async () => true,
-        logger: { info() {}, error() {} },
+        logger: { debug() {}, info() {}, error() {} },
         isReady: () => true,
         authenticator: {
             key,
