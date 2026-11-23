@@ -1,7 +1,7 @@
 /**
  * Created by kaloyan on 10.7.2016 г..
  */
- 'use strict';
+'use strict';
 
 const crypto = require('crypto');
 const { blocked, checkIP } = require('../utils/admin-state');
@@ -11,7 +11,7 @@ const { ClientSessions, eligibleGame } = require('../utils/client-sessions');
 const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
 const AuthenticationListener = require('../listeners/authentication');
-const {logger} = require("../servers/configuration");
+const {logger} = require('../servers/configuration');
 
 class AuthenticationService extends Service {
     constructor({ logger, models, store, amqpConnection }) {
