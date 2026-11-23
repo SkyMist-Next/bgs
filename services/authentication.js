@@ -1,7 +1,7 @@
 /**
  * Created by kaloyan on 10.7.2016 г..
  */
-'use strict';
+ 'use strict';
 
 const crypto = require('crypto');
 const { blocked, checkIP } = require('../utils/admin-state');
@@ -11,6 +11,7 @@ const { ClientSessions, eligibleGame } = require('../utils/client-sessions');
 const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
 const AuthenticationListener = require('../listeners/authentication');
+const {logger} = require("../servers/configuration");
 
 class AuthenticationService extends Service {
     constructor({ logger, models, store, amqpConnection }) {
@@ -57,7 +58,9 @@ class AuthenticationService extends Service {
             });
             const listener = new ChallengeListener(context, this.amqpConnection);
             try {
-                await listener.OnExternalChallenge(webAuthUrl + loginTicket);
+                const challengeUrl = webAuthUrl + loginTicket;
+                await listener.OnExternalChallenge(challengeUrl);
+                logger.debug('Sent OnExternalChallenge with URL ' + challengeUrl);
             } finally {
                 await listener.destroy();
             }
