@@ -4,8 +4,8 @@ const Sequelize = require('sequelize');
 const defineAccount = require('../models/account');
 const defineGameAccount = require('../models/gameaccount');
 
-module.exports = function createDatabase(config, logger, environment = process.env) {
-    const options = { ...config, timezone: '+00:00', logging: message => logger.debug(message) };
+module.exports = function createDatabase(config, logQuery, environment = process.env) {
+    const options = { ...config, timezone: '+00:00', logging: typeof logQuery === 'function' ? logQuery : false };
     if (options.dialect === 'mysql') {
         // Keep JSON text and BIGINT values lossless across MySQL's JSON type
         // and MariaDB's JSON alias, including JSON string primitives.

@@ -123,9 +123,14 @@ class BaseServer {
         this.controller.signal.throwIfAborted();
         const options = { config, logger, env, signal: this.controller.signal, onFatal: error => this.stop(error) };
         const database = this.track((async () => {
-            const resource = await this.acquire(() => factories.database
-                ? factories.database(options)
-                : require('../models')(config.database, logger, env),
+            const resource = await this.acquire(() => {
+                if (factories.database) { return factories.database(options); }
+                const queryLog = env.BGS_SQL_LOG_FILE && require('../utils/sql-query-log')(env.BGS_SQL_LOG_FILE, logger);
+                if (queryLog) {
+                    this.own(queryLog, sink => sink.close(), sink => sink.destroy());
+                }
+                return require('../models')(config.database, queryLog?.write, env);
+            },
             models => models.sequelize.close(), models => factories.forceDatabase
                 ? factories.forceDatabase(models) : (models.forceClose ? models.forceClose() : models.sequelize.connectionManager?.pool?.destroyAllNow()));
             this.dependencies.models = Object.assign(resource.value, { realmDatabase: config.realmDatabase, ipBansEnabled: config.ipBansEnabled !== false });

@@ -151,6 +151,14 @@ and timestamps default to enabled; `json: false` selects text output and
 `timestamp: false` disables timestamps. Development also logs to the console at
 debug level. Error messages and stacks are normalized before transport formatting.
 
+Sequelize query tracing is disabled by default. Start a BGS process with
+`BGS_SQL_LOG_FILE=/absolute/path/to/sequelize.log` to write timestamped JSON lines
+to a dedicated file. Use a separate path for each process. The file rotates at
+10 MiB and keeps three archives. New files are readable and writable by their
+owner only. SQL can include inline values. Keep access to the files restricted.
+Unsetting the variable or setting it to an empty string disables tracing at the
+next restart.
+
 Logon callbacks carry a 64-byte binary session key and the available
 GameAccount regions. RealmJoin tickets use canonical platform strings; native
 client numeric FourCC values such as `1466840628` are decoded to `Wn64` before
@@ -420,7 +428,7 @@ lifecycle described below. The historical validation figures in this section ref
 to that earlier working-tree snapshot.
 
 Entrypoints own their logger, database, Redis store, and AMQP/server resources.
-`require('./models')` exports `createDatabase(config, logger, environment)`;
+`require('./models')` exports `createDatabase(config, logQuery, environment)`;
 importing it or a service does not read operator configuration or construct a
 database. Services receive dependency objects and retain only the dependencies
 they use: the base service takes `logger`; authentication takes `logger`, `models`,
