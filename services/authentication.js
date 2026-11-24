@@ -11,7 +11,6 @@ const { ClientSessions, eligibleGame } = require('../utils/client-sessions');
 const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
 const AuthenticationListener = require('../listeners/authentication');
-const {logger} = require('../servers/configuration');
 
 class AuthenticationService extends Service {
     constructor({ logger, models, store, amqpConnection }) {
@@ -60,7 +59,7 @@ class AuthenticationService extends Service {
             try {
                 const challengeUrl = webAuthUrl + loginTicket;
                 await listener.OnExternalChallenge(challengeUrl);
-                logger.debug('Sent OnExternalChallenge with URL ' + challengeUrl);
+                this.logger.debug('Sent OnExternalChallenge with URL ' + challengeUrl);
             } finally {
                 await listener.destroy();
             }
