@@ -50,7 +50,7 @@ module.exports = (sequelize, DataTypes) => {
             realIdEnabled: {
                 type: DataTypes.BOOLEAN,
                 allowNull: false,
-                defaultValue: false,
+                defaultValue: true,
                 field: 'real_id_enabled',
             },
             banExpiresAt: { type: DataTypes.DATE, field: 'ban_expires_at' },

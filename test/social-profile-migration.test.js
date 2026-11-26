@@ -5,6 +5,7 @@ const { test } = require('node:test');
 const { Sequelize, DataTypes } = require('sequelize');
 const { randomBytes } = require('node:crypto');
 const migration = require('../migrations/20261112000001-social-profile');
+const realIdDefault = require('../migrations/20261126000000-real-id-default-on');
 
 test('BattleTag preflight reports exact account IDs and never writes on a collision', async () => {
     const queries = [];
@@ -57,14 +58,29 @@ test('migration refuses incompatible indexes including string-valued metadata', 
     }
 });
 
-test('account profile model has nullable names and an explicit opt-out default', async () => {
+test('Real ID default migration opts every account in and down restores only the default', async () => {
+    const queries = [];
+    const q = { sequelize: { query: async (sql) => queries.push(sql) } };
+    await realIdDefault.up(q);
+    assert.deepEqual(queries, [
+        'ALTER TABLE accounts ALTER COLUMN real_id_enabled SET DEFAULT 1',
+        'UPDATE accounts SET real_id_enabled = 1 WHERE real_id_enabled = 0',
+    ]);
+    queries.length = 0;
+    await realIdDefault.down(q);
+    assert.deepEqual(queries, [
+        'ALTER TABLE accounts ALTER COLUMN real_id_enabled SET DEFAULT 0',
+    ]);
+});
+
+test('account profile model has nullable names and an opt-in default', async () => {
     const db = new Sequelize('mysql://fixture@localhost/fixture', {
         logging: false,
     });
     try {
         const Account = require('../models/account')(db, DataTypes);
         const account = Account.build({ id: '9007199254740993' });
-        assert.equal(account.realIdEnabled, false);
+        assert.equal(account.realIdEnabled, true);
         assert.equal(Account.rawAttributes.givenName.field, 'given_name');
         assert.equal(Account.rawAttributes.givenName.allowNull, true);
         assert.equal(Account.rawAttributes.surname.allowNull, true);
