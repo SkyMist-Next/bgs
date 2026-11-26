@@ -18,7 +18,8 @@ The [26972 wire contract](docs/social-26972-contract.md) records native evidence
 and the 15595 projection. [Integration validation](docs/social-integration.md)
 exercises real SQL, Redis and RabbitMQ independently of native game acceptance.
 Profiles are administered through the private admin API/CLI using `given_name`,
-`surname` and `real_id_enabled` (disabled by default).
+`surname` and `real_id_enabled` (enabled by default since migration
+`20261126000000-real-id-default-on`, which also opted in existing accounts).
 
 Rollout requires the social migrations, the sibling chart's social Deployment,
 the operator's `skymist.realm.social.v1.requests` broker grant and both cores'
