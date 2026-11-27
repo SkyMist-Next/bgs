@@ -8,6 +8,16 @@ const { watched } = require('./redis-transaction');
 
 const METADATA = '/aurora/metadata';
 const LOGIN_PREFIX = '/aurora/services/AuthenticationService/loginTickets/';
+// Reconnect credentials (ADR-0002) are stored only under their SHA-256 digest.
+const RECONNECT_PREFIX = '/aurora/services/AuthenticationService/reconnect/';
+const RECONNECT_CONNECTION_PREFIX = RECONNECT_PREFIX + 'connections/';
+const RECONNECT_TTL_SECONDS = 86400;
+function reconnectKey(credential) {
+    return (
+        RECONNECT_PREFIX +
+    require('node:crypto').createHash('sha256').update(credential).digest('hex')
+    );
+}
 
 function tlsOptions(env, prefix) {
     const enabled = env[prefix + '_TLS'];
@@ -441,6 +451,35 @@ class RedisStore {
         const clients = await this.transactionPoolTask.catch(() => []);
         this.transactionPoolTask = undefined;
         await Promise.allSettled(clients.map((client) => client.release()));
+    }
+    // One live reconnect credential per client connection: issuing a new one
+    // revokes the previous credential of the same connection.
+    async createReconnectCredential(credential, connectionId, record) {
+        const key = reconnectKey(credential);
+        const pointer = RECONNECT_CONNECTION_PREFIX + connectionId;
+        await this.transaction([pointer, key], async (client) => {
+            if (await client.exists(key)) {
+                throw new Error('Reconnect credential already exists');
+            }
+            const previous = await client.get(pointer);
+            const ttl = String(RECONNECT_TTL_SECONDS);
+            return {
+                commands: [
+                    ...(previous ? [['DEL', previous]] : []),
+                    ['SET', key, JSON.stringify(record), 'EX', ttl],
+                    ['SET', pointer, key, 'EX', ttl],
+                ],
+            };
+        });
+    }
+    // Single use: the record is returned at most once.
+    async consumeReconnectCredential(credential) {
+        const key = reconnectKey(credential);
+        const raw = await this.transaction([key], async (client) => {
+            const value = await client.get(key);
+            return { commands: value ? [['DEL', key]] : [], result: value };
+        });
+        return raw ? JSON.parse(raw) : null;
     }
     async createLoginTicket(ticket, program, identity = {}) {
         const key = LOGIN_PREFIX + ticket;

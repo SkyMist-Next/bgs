@@ -12,6 +12,17 @@ const Service = require('./service');
 const ChallengeListener = require('../listeners/challenge');
 const AuthenticationListener = require('../listeners/authentication');
 
+const CREDENTIAL_BYTES = 32;
+function fourcc(value) {
+    const number = Number(value) >>> 0;
+    return String.fromCharCode(
+        (number >>> 24) & 255,
+        (number >>> 16) & 255,
+        (number >>> 8) & 255,
+        number & 255,
+    ).replace(/^\0+/, '');
+}
+
 class AuthenticationService extends Service {
     constructor({ logger, models, store, amqpConnection }) {
         super(
@@ -30,6 +41,10 @@ class AuthenticationService extends Service {
             'VerifyWebCredentials',
             this.VerifyWebCredential.bind(this),
         );
+        this.registerHandler(
+            'GenerateWebCredentials',
+            this.GenerateWebCredentials.bind(this),
+        );
     }
 
     async Logon(context) {
@@ -39,6 +54,9 @@ class AuthenticationService extends Service {
         ' on ' +
         context.request.platform,
         );
+        if (context.request.cachedWebCredentials?.length) {
+            return this.reconnect(context);
+        }
         const loginTicket = crypto.randomBytes(20).toString('hex');
         try {
             const webAuthUrl = await this.store.getMetadata(
@@ -75,14 +93,9 @@ class AuthenticationService extends Service {
         if (!loginTicket.length) {
             throw 0x00000001;
         }
-        let status = 0;
-        let account;
-        let gameAccounts;
-        let applicationVersion;
-        let proof;
+        let ticket;
         try {
-            const ticket = await this.store.getLoginTicket(loginTicket);
-            await checkIP(this.models, context.identity?.address);
+            ticket = await this.store.getLoginTicket(loginTicket);
             if (
                 !ticket ||
         !ticket.connectionId ||
@@ -91,43 +104,127 @@ class AuthenticationService extends Service {
             ) {
                 throw new Error('Login ticket belongs to another connection');
             }
-            applicationVersion = Number(ticket?.applicationVersion) || undefined;
-            const accountId = ticket && ticket.accountId;
-            account =
-                accountId &&
-        (await this.models.Account.findOne({
-            include: [{ model: this.models.GameAccount, as: 'gameAccounts' }],
-            where: { id: accountId },
-        }));
-            if (blocked(account)) {
+        } catch {
+            this.logger.error('Authentication dependency failed');
+            return this.completeLogon(context, null, 0x00000001);
+        }
+        return this.completeLogon(context, {
+            accountId: ticket.accountId,
+            program: ticket.program,
+            applicationVersion: Number(ticket.applicationVersion) || undefined,
+            proof: {
+                credentialVersion: String(ticket.credentialVersion ?? 1),
+                authenticatorGeneration: String(ticket.authenticatorGeneration ?? 0),
+                authenticatorVerifiedAt: Number(ticket.authenticatorVerifiedAt ?? 0),
+            },
+        });
+    }
+
+    // ADR-0002: a client that lost its connection logs on again with the
+    // single-use credential it obtained from GenerateWebCredentials. Unknown,
+    // expired, consumed or foreign credentials answer ERROR_NO_AUTH.
+    async reconnect(context) {
+        let grant = null;
+        let status = 0;
+        try {
+            if (!context.identity?.connectionId) {
+                throw new Error('Missing connection identity');
+            }
+            const credential = Buffer.from(context.request.cachedWebCredentials);
+            const record =
+                credential.length === CREDENTIAL_BYTES
+                    ? await this.store.consumeReconnectCredential(credential)
+                    : null;
+            if (
+                !record ||
+        record.address !== context.identity.address ||
+        record.program !== context.request.program ||
+        Number(record.applicationVersion || 0) !==
+          Number(context.request.applicationVersion || 0)
+            ) {
                 status = 0x0000000a; // ERROR_NO_AUTH
             } else {
-                proof = {
-                    credentialVersion: String(ticket.credentialVersion ?? 1),
-                    authenticatorGeneration: String(ticket.authenticatorGeneration ?? 0),
-                    authenticatorVerifiedAt: Number(ticket.authenticatorVerifiedAt ?? 0),
-                };
-                requireProof(account, proof);
-                const program = ticket.program;
-                gameAccounts = account.gameAccounts.filter(
-                    (gameAccount) =>
-                        gameAccount.program === program &&
-            eligibleGame(gameAccount, applicationVersion),
-                );
-                if (!gameAccounts.length) {
-                    status = 0x0000000c; // ERROR_NO_GAME_ACCOUNT
-                }
+                grant = record;
             }
         } catch {
             this.logger.error('Authentication dependency failed');
-            status = 0x00000001; // ERROR_INTERNAL
+            status = 0x00000001;
+        }
+        return this.completeLogon(context, grant, status);
+    }
+
+    // Issues the reconnect credential of the calling, authenticated connection.
+    async GenerateWebCredentials(context) {
+        const session = await this.sessions.resolve(context);
+        const program = fourcc(context.request.program);
+        if (program !== 'WoW') {
+            throw 0x00000001;
+        }
+        const credential = crypto.randomBytes(CREDENTIAL_BYTES);
+        try {
+            await this.store.createReconnectCredential(
+                credential,
+                session.connectionId,
+                {
+                    accountId: session.accountId,
+                    address: session.address,
+                    program,
+                    applicationVersion: session.applicationVersion,
+                    proof: {
+                        credentialVersion: session.credentialVersion,
+                        authenticatorGeneration: session.authenticatorGeneration,
+                        authenticatorVerifiedAt: session.authenticatorVerifiedAt,
+                    },
+                },
+            );
+        } catch {
+            this.logger.error('Authentication dependency failed');
+            throw 0x00000001;
+        }
+        context.response.webCredentials = credential;
+        return 0;
+    }
+
+    // Shared end of every logon: rechecks IP, account bans and the
+    // authentication proof, opens the client session and sends exactly one
+    // OnLogonComplete.
+    async completeLogon(context, grant, status = 0) {
+        let account;
+        let gameAccounts;
+        if (status === 0) {
+            try {
+                await checkIP(this.models, context.identity?.address);
+                const accountId = grant && grant.accountId;
+                account =
+                    accountId &&
+          (await this.models.Account.findOne({
+              include: [{ model: this.models.GameAccount, as: 'gameAccounts' }],
+              where: { id: accountId },
+          }));
+                if (blocked(account)) {
+                    status = 0x0000000a; // ERROR_NO_AUTH
+                } else {
+                    requireProof(account, grant.proof);
+                    gameAccounts = account.gameAccounts.filter(
+                        (gameAccount) =>
+                            gameAccount.program === grant.program &&
+              eligibleGame(gameAccount, grant.applicationVersion),
+                    );
+                    if (!gameAccounts.length) {
+                        status = 0x0000000c; // ERROR_NO_GAME_ACCOUNT
+                    }
+                }
+            } catch {
+                this.logger.error('Authentication dependency failed');
+                status = 0x00000001; // ERROR_INTERNAL
+            }
         }
         if (status === 0) {
             try {
                 await this.sessions.open(context.identity, {
                     accountId: account.id,
-                    proof,
-                    applicationVersion,
+                    proof: grant.proof,
+                    applicationVersion: grant.applicationVersion,
                 });
             } catch {
                 status = 1;
