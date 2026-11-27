@@ -35,7 +35,8 @@ class NotificationService extends Service {
                 // Shared primary time and WATCH/EXEC serialize all licenses, connections
                 // and workers for this parent. Only bounded timestamps are retained.
                 const raw = await client.get(key);
-                const [seconds, microseconds] = await client.sendCommand(['TIME']);
+                // Sentinel leases take (isReadonly, args); ['TIME'] alone left args undefined.
+                const [seconds, microseconds] = await client.sendCommand(false, ['TIME']);
                 const now =
                     Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000);
                 const previous = raw === null ? [] : JSON.parse(raw);
