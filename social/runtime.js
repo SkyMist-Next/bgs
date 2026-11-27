@@ -935,8 +935,10 @@ class SocialRuntime {
         this.timer = setTimeout(
             () => {
                 this.running = this.pulse()
-                    .catch(() => {
-                        this.logger.warn('Social reconciliation deferred');
+                    .catch((error) => {
+                        this.logger.warn('Social reconciliation deferred', {
+                            error: error instanceof Error ? error.stack : String(error),
+                        });
                     })
                     .finally(() => {
                         this.running = null;

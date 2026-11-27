@@ -71,7 +71,8 @@ function redis() {
                 version(key);
                 return state.rows.get(key)?.value ?? null;
             },
-            sendCommand: async (command) => {
+            sendCommand: async (isReadonly, command) => {
+                assert.equal(isReadonly, false);
                 assert.deepEqual(command, ['TIME']);
                 return [
                     String(Math.floor(state.now / 1000)),
