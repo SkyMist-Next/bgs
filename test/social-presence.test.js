@@ -355,3 +355,17 @@ test('toon state disappears on withdrawal and expired session; there is no offli
     const account = await rpc(f, 'Query', { entityId: wire.account(B) });
     assert.equal(value(account.response.field, p.BN, 1, 3), undefined);
 });
+test('AFK and DND are session state and reset whenever online state changes', async () => {
+    const f = fixture();
+    const target = { subject: 'a:' + B, accountId: B };
+    const values = () => f.rows.get('a:' + B).values;
+    await f.service.state(target, true, { afk: true });
+    assert.equal(values().afk, true);
+    await f.service.state(target, true);
+    assert.equal(values().afk, true);
+    await f.service.state(target, false);
+    assert.equal(values().afk, false);
+    assert.equal(values().dnd, false);
+    await f.service.state(target, true, { dnd: true });
+    assert.equal(values().dnd, true);
+});

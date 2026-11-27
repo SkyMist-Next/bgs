@@ -99,6 +99,11 @@ class PresenceService extends Service {
             const values = { ...previous };
             if (online !== undefined && values.online !== online) {
                 values.online = online;
+                // AFK and Busy belong to one online session. The 15595 client only
+                // republishes them when its flag changes, so a stale value would show
+                // a friend as Away from the moment they log in again.
+                values.afk = false;
+                values.dnd = false;
                 if (online) {
                     values.onlineTime = microseconds();
                 } else {
